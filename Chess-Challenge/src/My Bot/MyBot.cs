@@ -1,13 +1,12 @@
 ﻿using System;
-using System.Diagnostics;
 using System.Linq;
 using ChessChallenge.API;
-using Microsoft.CodeAnalysis.Text;
 
 public class MyBot : IChessBot
 {
     Board b;
-    
+    private int[] pieceValues = { 0, 1, 3, 3, 5, 9, 9 };
+
     public Move Think(Board board, Timer timer)
     {
         b = board;
@@ -22,11 +21,9 @@ public class MyBot : IChessBot
             {
                 bestMove = move;
                 bestScore = result;
-                Console.WriteLine("move: " + bestMove.ToString());
             }
         }
         
-        Console.WriteLine("Score: " + bestScore);
         return bestMove;
     }
 
@@ -69,8 +66,11 @@ public class MyBot : IChessBot
         return score;
     }
 
-    int eval() {
+    float eval() {
         return b.GetAllPieceLists().Select(pieceList =>
-            pieceList.Count * (int)pieceList.TypeOfPieceInList * (pieceList.IsWhitePieceList == b.IsWhiteToMove ? 1 : -1)).Sum();
+            (pieceList.TypeOfPieceInList == PieceType.King ? 1
+                : (.75f + pieceList.Select(piece => (piece.IsWhite ? piece.Square.Rank : 7 - piece.Square.Rank) / 28f)
+                    .Sum()))
+            * pieceValues[(int)pieceList.TypeOfPieceInList] * (pieceList.IsWhitePieceList == b.IsWhiteToMove ? 1 : -1)).Sum();
     }
 }
