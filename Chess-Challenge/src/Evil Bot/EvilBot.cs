@@ -25,6 +25,7 @@ namespace ChessChallenge.Example
                 {
                     bestMove = move;
                     bestScore = result;
+                    Console.WriteLine("move: " + bestMove.ToString());
                 }
             }
 
@@ -36,11 +37,10 @@ namespace ChessChallenge.Example
         // means that the player who can choose between `moves` thinks they are winning
         float search_score(Move[] moves, int depth, float alpha, float beta)
         {
-            alpha = float.NegativeInfinity;
             foreach (var move in moves)
             {
                 var result = -deepen(move, depth, alpha, beta);
-                //if (result >= beta) return beta;
+                if (result >= beta) return beta;
                 alpha = Math.Max(alpha, result);
             }
 
@@ -72,7 +72,7 @@ namespace ChessChallenge.Example
             }
             else
             {
-                score = -search_score(b.GetLegalMoves(), depth - 1, -beta, -alpha);
+                score = search_score(b.GetLegalMoves(), depth - 1, -beta, -alpha);
             }
             b.UndoMove(move);
             return score;
