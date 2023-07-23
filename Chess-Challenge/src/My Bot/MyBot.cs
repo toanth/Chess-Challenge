@@ -31,14 +31,13 @@ public class MyBot : IChessBot
     }
 
     // return the score from the point of view of the current player, i.e. a high value
-    // means that the player who can choose between moves thinks they are winning
+    // means that the player who can choose between `moves` thinks they are winning
     float search_score(Move[] moves, int depth, float alpha, float beta)
     {
-        alpha = float.NegativeInfinity;
         foreach (var move in moves)
         {
             var result = -deepen(move, depth, alpha, beta);
-            //if (result >= beta) return beta;
+            if (result >= beta) return beta;
             alpha = Math.Max(alpha, result);
         }
 
@@ -64,7 +63,6 @@ public class MyBot : IChessBot
             }
             else*/ score = eval();
         } else {
-            //if (b.GetLegalMoves().Length > 0) score = Math.Max(alpha, -search_score(b.GetLegalMoves(), depth - 1, -beta, -alpha));
             score = search_score(b.GetLegalMoves(), depth - 1, -beta, -alpha);
         }
         b.UndoMove(move);
