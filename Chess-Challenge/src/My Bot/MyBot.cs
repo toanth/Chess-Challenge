@@ -5,7 +5,8 @@ using ChessChallenge.API;
 public class MyBot : IChessBot
 {
     Board b;
-    private int[] pieceValues = { 0, 1, 3, 3, 5, 9, 9 };
+    private int[] pieceValues = { 0, 126, 781, 825, 1276, 2538, 0 };
+
 
     public Move Think(Board board, Timer timer)
     {
@@ -23,7 +24,6 @@ public class MyBot : IChessBot
                 bestScore = result;
             }
         }
-        
         return bestMove;
     }
 
@@ -48,8 +48,9 @@ public class MyBot : IChessBot
         var score = float.NegativeInfinity;
         b.MakeMove(move);
 
-        if (b.GetLegalMoves().Length == 0) {
-            if (!b.IsInCheck()) score = 0;
+        if (b.IsInCheckmate()) {
+        } else if (b.IsDraw()) {
+            score = -1;
         } else if (depth <= 0) {
             /*if (depth > -3)
             {
@@ -66,11 +67,25 @@ public class MyBot : IChessBot
         return score;
     }
 
-    float eval() {
-        return b.GetAllPieceLists().Select(pieceList =>
-            (pieceList.TypeOfPieceInList == PieceType.King ? 1
-                : (.75f + pieceList.Select(piece => (piece.IsWhite ? piece.Square.Rank : 7 - piece.Square.Rank) / 28f)
-                    .Sum()))
-            * pieceValues[(int)pieceList.TypeOfPieceInList] * (pieceList.IsWhitePieceList == b.IsWhiteToMove ? 1 : -1)).Sum();
+    int eval() {
+        return evalPlayer(b.IsWhiteToMove) - evalPlayer(!b.IsWhiteToMove);
     }
+
+    int evalPlayer(bool color) {
+        int material = b.GetAllPieceLists().Select(pieceList =>
+                pieceList.Count * pieceValues[(int)pieceList.TypeOfPieceInList] * (pieceList.IsWhitePieceList == color ? 1 : 0)).Sum();
+        int position = Math.Abs(b.GetKingSquare(color).Rank - 4) * (material - 2000) / 100 // total material 9310, so go to the center in the endgame
+            + b.GetPieceList(PieceType.Knight, color).Select(
+                knight => BitboardHelper.GetNumberOfSetBits(BitboardHelper.GetKnightAttacks(knight.Square))).Sum() // how well are knights placed?
+            + b.GetPieceList(PieceType.Pawn, color).Select(pawn => Math.Abs((color ? 7 : 0) - pawn.Square.Rank)).Sum() // advancing pawns is good
+            + BitboardHelper.GetNumberOfSetBits((color ? b.WhitePiecesBitboard : b.BlackPiecesBitboard) & 0x00c4c4c4c400); // controlling the center is good
+        for (int slidingPiece = 3; slidingPiece <= 5; ++slidingPiece)
+        {
+            position += b.GetPieceList((PieceType)slidingPiece, color).Select( // how well are sliding pieces placed?
+                piece => BitboardHelper.GetNumberOfSetBits(BitboardHelper.GetSliderAttacks((PieceType)slidingPiece, piece.Square, b))).Sum();
+        }
+        // choosing custom factors (including for the different summmands of `position` may improve this evaluation, but this already seems relatively decent
+        return material + position;
+    }
+
 }
