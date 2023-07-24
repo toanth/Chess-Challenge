@@ -78,7 +78,7 @@ public class MyBot : IChessBot
             + b.GetPieceList(PieceType.Knight, color).Select(
                 knight => BitboardHelper.GetNumberOfSetBits(BitboardHelper.GetKnightAttacks(knight.Square))).Sum() // how well are knights placed?
             + b.GetPieceList(PieceType.Pawn, color).Select(pawn => Math.Abs((color ? 7 : 0) - pawn.Square.Rank)).Sum() // advancing pawns is good
-            + BitboardHelper.GetNumberOfSetBits((color ? b.WhitePiecesBitboard : b.BlackPiecesBitboard) & 0x00c4c4c4c400); // controlling the center is good
+            + BitboardHelper.GetNumberOfSetBits((color ? b.WhitePiecesBitboard : b.BlackPiecesBitboard) & 0x00c3c3c3c300); // controlling the center is good
         for (int slidingPiece = 3; slidingPiece <= 5; ++slidingPiece)
         {
             position += b.GetPieceList((PieceType)slidingPiece, color).Select( // how well are sliding pieces placed?
