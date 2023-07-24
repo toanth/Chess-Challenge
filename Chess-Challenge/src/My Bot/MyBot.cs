@@ -1,12 +1,13 @@
 ﻿using System;
+using System.Collections.Generic;
 using System.Linq;
 using ChessChallenge.API;
 
 public class MyBot : IChessBot
 {
     Board b;
-    private int[] pieceValues = { 0, 126, 781, 825, 1276, 2538, 0 };
-
+    int[] pieceValues = { 0, 126, 781, 825, 1276, 2538, 0 };
+    Dictionary<ulong, float> scoreCache = new();
 
     public Move Think(Board board, Timer timer)
     {
@@ -15,15 +16,25 @@ public class MyBot : IChessBot
         var moves = board.GetLegalMoves();
         var bestMove = moves[0];
         var bestScore = float.NegativeInfinity;
-        foreach (var move in moves)
+        var start = timer.MillisecondsRemaining;
+        var depth = 3;
+        
+        // attempt at iterative deepening. No move ordering yet, and no cancelling of calculations that take too long
+        while (timer.MillisecondsRemaining > start - 500)
         {
-            var result = -deepen(move, 3, float.NegativeInfinity, float.PositiveInfinity);
-            if (result > bestScore)
+            scoreCache.Clear();
+            foreach (var move in moves)
             {
-                bestMove = move;
-                bestScore = result;
+                var result = -deepen(move, depth, float.NegativeInfinity, float.PositiveInfinity);
+                if (result > bestScore)
+                {
+                    bestMove = move;
+                    bestScore = result;
+                }
             }
+            depth++;
         }
+        
         return bestMove;
     }
 
@@ -47,6 +58,11 @@ public class MyBot : IChessBot
     {
         var score = float.NegativeInfinity;
         b.MakeMove(move);
+        if (scoreCache.TryGetValue(b.ZobristKey, out var lookupScore))
+        {
+            b.UndoMove(move);
+            return lookupScore;
+        }
 
         if (b.IsInCheckmate()) {
         } else if (b.IsDraw()) {
@@ -63,6 +79,9 @@ public class MyBot : IChessBot
         } else {
             score = search_score(b.GetLegalMoves(), depth - 1, -beta, -alpha);
         }
+
+        // TODO do I need to invert this for enemy moves?
+        scoreCache[b.ZobristKey] = score;
         b.UndoMove(move);
         return score;
     }
