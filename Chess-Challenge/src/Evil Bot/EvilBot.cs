@@ -1,5 +1,7 @@
 ﻿using ChessChallenge.API;
 using System;
+using System.Collections.Generic;
+using System.Diagnostics;
 using System.Linq;
 
 namespace ChessChallenge.Example
@@ -8,7 +10,7 @@ namespace ChessChallenge.Example
     // Plays randomly otherwise.
     public class EvilBot : IChessBot
     {
-     
+
         ////                     .  P    K    B    R    Q    K
         //int[] kPieceValues = { 0, 100, 300, 310, 500, 900, 10000 };
         //int kMassiveNum = 99999999;
@@ -74,7 +76,17 @@ namespace ChessChallenge.Example
         Board b;
         // piece values from stockfish's middle game evaluation function. Our bot won't make it to even endgames
         private int[] pieceValues = { 0, 126, 781, 825, 1276, 2538, 0 };
-
+        // maps a zobrist hash of a position to its score, the search depth at which the score was evaluated,
+        // the score type (lower bound, exact, upper bound), and the best move
+        record struct TTEntry // The size of a TTEntry should be 2 + 1 + 1 + 2 + (probably 8 for .Net info) + padding = 16 bytes
+        (
+            short score,
+            byte depth,
+            sbyte type, // -1: upper bound (ie real score may be worse), 0: exact: 1: lower bound
+            Move bestMove // this may not actually be the best move, but the first move wich was good enough to cause a beta cut
+        );
+        //Dictionary<ulong, (short, byte, sbyte, Move)> transpositionTable = new();
+        Dictionary<ulong, TTEntry> transpositionTable = new(); // TODO: Replace with tuple?
 
         public Move Think(Board board, Timer timer)
         {
@@ -82,23 +94,24 @@ namespace ChessChallenge.Example
 
             var moves = board.GetLegalMoves();
             var bestMove = moves[0];
-            var bestScore = -1_000_000;
-            //for (int depth = 1; depth < 4; ++depth) // TODO: Actually use iterative deepening for something
-            //{
-            var depth = 3;
-            foreach (var move in moves)
+            for (int depth = 1; depth < 4; ++depth) // TODO: Actually use iterative deepening for something; start with 0?
             {
-                b.MakeMove(move);
-                var result = -negamax(depth, -1_000_000, -bestScore);
-                b.UndoMove(move);
-                if (result > bestScore)
+                var bestScore = -32_767;
+                transpositionTable.Clear();
+                foreach (var move in moves)
                 {
-                    bestMove = move;
-                    bestScore = result;
+                    b.MakeMove(move);
+                    var result = -negamax(depth, -32_767, -bestScore);
+                    b.UndoMove(move);
+                    if (result > bestScore)
+                    {
+                        bestMove = move;
+                        bestScore = result;
+                    }
+                    if (timer.MillisecondsElapsedThisTurn * 8 > timer.MillisecondsRemaining) return bestMove;
                 }
-                if (timer.MillisecondsElapsedThisTurn * 8 > timer.MillisecondsRemaining) return bestMove;
             }
-            //}
+            //Console.WriteLine("TT size: " + transpositionTable.Count);
             return bestMove;
         }
 
@@ -108,18 +121,41 @@ namespace ChessChallenge.Example
         {
 
             if (b.IsInCheckmate())
-                return -1_000_000;
-            else if (b.IsDraw())
+                return -32_767;
+            if (b.IsDraw())
                 return 0;
-            else if (depth <= 0)
+            if (depth <= 0)
+                /*if (depth > -3)
+                {
+                    var captures = b.GetLegalMoves(true);
+                    if (captures.Length > 0) score = Math.Max(alpha, -search_score(captures, depth - 1, -beta, -alpha));
+                    else score = eval();
+                }
+                else*/
                 return eval();
-            foreach (var move in b.GetLegalMoves())
+            var legalMoves = b.GetLegalMoves();
+            if (transpositionTable.TryGetValue(b.ZobristKey, out var lookupVal))
+                if (lookupVal.depth >= depth
+                    && (lookupVal.type == 0 || lookupVal.type == -1 && lookupVal.score <= alpha || lookupVal.type == 1 && lookupVal.score >= beta))
+                    return lookupVal.score;
+                else // search the most promising move first, which causes great alpha beta bounds (duplicating this move shouldn't really matter)
+                    legalMoves.Prepend(lookupVal.bestMove); // maybe an O(n) operation? The list should be relatively short, though
+            var bestMove = legalMoves[0];
+            var lowestAlpha = alpha;
+            Debug.Assert(b.GetLegalMoves().Contains(bestMove)); // TODO: This may be false when a zobrist hash collision occurs
+            foreach (var move in legalMoves)
             {
                 b.MakeMove(move);
-                alpha = Math.Max(alpha, -negamax(depth - 1, -beta, -alpha));
+                var score = -negamax(depth - 1, -beta, -alpha);
                 b.UndoMove(move);
-                if (alpha >= beta) return alpha;
+                if (score > alpha)
+                {
+                    alpha = score;
+                    bestMove = move;
+                    if (alpha >= beta) break;
+                }
             }
+            transpositionTable[b.ZobristKey] = new((short)alpha, (byte)depth, (sbyte)(alpha <= lowestAlpha ? -1 : alpha >= beta ? 1 : 0), bestMove);
             return alpha;
         }
 
@@ -129,7 +165,7 @@ namespace ChessChallenge.Example
         }
 
 
-        int evalPlayer(bool color, bool debug = false)
+        int evalPlayer(bool color)
         {
             int material = b.GetAllPieceLists().Select(pieceList =>
                     pieceList.Count * pieceValues[(int)pieceList.TypeOfPieceInList] * (pieceList.IsWhitePieceList == color ? 1 : 0)).Sum();
@@ -145,10 +181,6 @@ namespace ChessChallenge.Example
             {
                 position += b.GetPieceList((PieceType)slidingPiece, color).Select(piece => // how well are sliding pieces placed?
                     BitboardHelper.GetNumberOfSetBits(BitboardHelper.GetSliderAttacks((PieceType)slidingPiece, piece.Square, b))).Sum();
-            }
-            if (debug)
-            {
-                Console.WriteLine("material: " + material.ToString() + ", position: " + position);
             }
 
             // choosing custom factors (including for the different summmands of `position`) may improve this evaluation, but this already seems relatively decent

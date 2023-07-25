@@ -2,6 +2,7 @@
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Linq;
+using System.Runtime.InteropServices;
 using ChessChallenge.API;
 using static System.Formats.Asn1.AsnWriter;
 
@@ -12,15 +13,18 @@ public class MyBot : IChessBot
     private int[] pieceValues = { 0, 126, 781, 825, 1276, 2538, 0 };
     // maps a zobrist hash of a position to its score, the search depth at which the score was evaluated,
     // the score type (lower bound, exact, upper bound), and the best move
-    record struct TTEntry // The size of a TTEntry should be 2 + 1 + 1 + 2 + (probably 8 for .Net info) + padding = 16 bytes
+    record struct TTEntry // The size of a TTEntry should be 8 + 4 + 2 + 1 + 1 + no padding = 16 bytes
     (
+        ulong key, // if we need more space, we could also just store the highest 32 bits since the lowest 23 bits are given by the index, leaving 9 bits unused
+        Move bestMove, // this may not actually be the best move, but the first move wich was good enough to cause a beta cut
         short score,
         byte depth,
-        sbyte type, // -1: upper bound (ie real score may be worse), 0: exact: 1: lower bound
-        Move bestMove // this may not actually be the best move, but the first move wich was good enough to cause a beta cut
+        sbyte type // -1: upper bound (ie real score may be worse), 0: exact: 1: lower bound
     );
-    //Dictionary<ulong, (short, byte, sbyte, Move)> transpositionTable = new();
-    Dictionary<ulong, TTEntry> transpositionTable = new(); // TODO: Replace with tuple?
+    //Dictionary<ulong, (ulong, short, byte, sbyte, Move)> transpositionTable = new(); // TODO: Use this uple? Should save some tokens
+    // max heap usage is 256mb, so use 2^23 entries, which should consume 134mb for sizeof(TTEntry) == 16
+    TTEntry[] transpositionTable = new TTEntry[8_388_608];
+
 
     public Move Think(Board board, Timer timer)
     {
@@ -31,7 +35,6 @@ public class MyBot : IChessBot
         for (int depth = 1; depth < 4; ++depth) // TODO: Actually use iterative deepening for something; start with 0?
         {
             var bestScore = -32_767;
-            transpositionTable.Clear();
             foreach (var move in moves)
             {
                 b.MakeMove(move);
@@ -68,7 +71,8 @@ public class MyBot : IChessBot
             else*/
             return eval();
         var legalMoves = b.GetLegalMoves();
-        if (transpositionTable.TryGetValue(b.ZobristKey, out var lookupVal))
+        var lookupVal = transpositionTable[b.ZobristKey & 8_388_607];
+        if (lookupVal.key == b.ZobristKey)
             if (lookupVal.depth >= depth
                 && (lookupVal.type == 0 || lookupVal.type == -1 && lookupVal.score <= alpha || lookupVal.type == 1 && lookupVal.score >= beta))
                 return lookupVal.score;
@@ -89,7 +93,11 @@ public class MyBot : IChessBot
                 if (alpha >= beta) break;
             }
         }
-        transpositionTable[b.ZobristKey] = new((short)alpha, (byte)depth, (sbyte)(alpha <= lowestAlpha? -1 : alpha >= beta ? 1 : 0), bestMove);
+        // always overwrite on hash table collisions (pure hash collisions should be pretty rare, but hash table collision frequent once the table is full)
+        // this removes old entries that we don't care about any more at the cost of potentially throwing out useful high-depth results in favor of much
+        // more frequent low-depth results
+        transpositionTable[b.ZobristKey & 8_388_607]
+            = new(b.ZobristKey, bestMove, (short)alpha, (byte)depth, (sbyte)(alpha <= lowestAlpha? -1 : alpha >= beta ? 1 : 0));
         return alpha;
     }
 
