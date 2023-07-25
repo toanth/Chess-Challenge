@@ -32,7 +32,7 @@ public class MyBot : IChessBot
 
         var moves = board.GetLegalMoves();
         var bestMove = moves[0];
-        for (int depth = 1; depth < 4; ++depth) // TODO: Actually use iterative deepening for something; start with 0?
+        for (int depth = 1; depth < 4; ++depth) // iterative deepening using the tranposition table for move ordering
         {
             var bestScore = -32_767;
             foreach (var move in moves)
@@ -48,7 +48,6 @@ public class MyBot : IChessBot
                 if (timer.MillisecondsElapsedThisTurn * 8 > timer.MillisecondsRemaining) return bestMove;
             }
         }
-        //Console.WriteLine("TT size: " + transpositionTable.Count);
         return bestMove;
     }
 
