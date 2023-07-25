@@ -16,7 +16,7 @@ public class MyBot : IChessBot
     record struct TTEntry // The size of a TTEntry should be 8 + 4 + 2 + 1 + 1 + no padding = 16 bytes
     (
         ulong key, // if we need more space, we could also just store the highest 32 bits since the lowest 23 bits are given by the index, leaving 9 bits unused
-        Move bestMove, // this may not actually be the best move, but the first move wich was good enough to cause a beta cut
+        int bestMoveIdx, // this may not actually be the best move, but the first move wich was good enough to cause a beta cut
         short score,
         byte depth,
         sbyte type // -1: upper bound (ie real score may be worse), 0: exact: 1: lower bound
@@ -58,7 +58,7 @@ public class MyBot : IChessBot
 
         var legalMoves = b.GetLegalMoves();
         if (b.IsInCheckmate())
-            return -32_767;
+            return -32_700 - depth; // being checkmated later (eval depth closer to 0) is better (as is checkmating earlier)
         if (b.IsDraw())
             return 0;
         if (depth <= 0)
@@ -76,10 +76,12 @@ public class MyBot : IChessBot
                 && (lookupVal.type == 0 || lookupVal.type == -1 && lookupVal.score <= alpha || lookupVal.type == 1 && lookupVal.score >= beta))
                 return lookupVal.score;
             else // search the most promising move first, which causes great alpha beta bounds (duplicating this move shouldn't really matter)
-                legalMoves.Prepend(lookupVal.bestMove); // maybe an O(n) operation? The list should be relatively short, though
-        var bestMove = legalMoves[0];
+                (legalMoves[0], legalMoves[lookupVal.bestMoveIdx]) = (legalMoves[lookupVal.bestMoveIdx], legalMoves[0]);
+                //legalMoves.Prepend(lookupVal.bestMove); // maybe an O(n) operation? The list should be relatively short, though
+        var bestMoveIdx = 0;
         var lowestAlpha = alpha;
-        Debug.Assert(b.GetLegalMoves().Contains(bestMove)); // TODO: This may be false when a zobrist hash collision occurs
+        int i = 0;
+        //Debug.Assert(b.GetLegalMoves().Contains(bestMove)); // TODO: This may be false when a zobrist hash collision occurs
         foreach (var move in legalMoves)
         {
             b.MakeMove(move);
@@ -88,15 +90,16 @@ public class MyBot : IChessBot
             if (score > alpha)
             {
                 alpha = score;
-                bestMove = move;
+                bestMoveIdx = i;
                 if (alpha >= beta) break;
             }
+            ++i;
         }
         // always overwrite on hash table collisions (pure hash collisions should be pretty rare, but hash table collision frequent once the table is full)
         // this removes old entries that we don't care about any more at the cost of potentially throwing out useful high-depth results in favor of much
         // more frequent low-depth results
         transpositionTable[b.ZobristKey & 8_388_607]
-            = new(b.ZobristKey, bestMove, (short)alpha, (byte)depth, (sbyte)(alpha <= lowestAlpha? -1 : alpha >= beta ? 1 : 0));
+            = new(b.ZobristKey, bestMoveIdx, (short)alpha, (byte)depth, (sbyte)(alpha <= lowestAlpha? -1 : alpha >= beta ? 1 : 0));
         return alpha;
     }
 
