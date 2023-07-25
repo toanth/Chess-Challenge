@@ -45,7 +45,7 @@ public class MyBot : IChessBot
                     bestMove = move;
                     bestScore = result;
                 }
-                if (timer.MillisecondsElapsedThisTurn * 8 > timer.MillisecondsRemaining) return bestMove;
+                if (timer.MillisecondsElapsedThisTurn * 16 > Math.Max(16000, timer.MillisecondsRemaining)) return bestMove;
             }
         }
         return bestMove;
@@ -56,9 +56,10 @@ public class MyBot : IChessBot
     int negamax(int depth, int alpha, int beta)
     {
 
+        var legalMoves = b.GetLegalMoves();
         if (b.IsInCheckmate())
             return -32_767;
-        if (b.IsRepeatedPosition() || b.FiftyMoveCounter >= 100) // a lot faster than IsDraw
+        if (b.IsDraw())
             return 0;
         if (depth <= 0)
             /*if (depth > -3)
@@ -69,7 +70,6 @@ public class MyBot : IChessBot
             }
             else*/
             return eval();
-        var legalMoves = b.GetLegalMoves();
         var lookupVal = transpositionTable[b.ZobristKey & 8_388_607];
         if (lookupVal.key == b.ZobristKey)
             if (lookupVal.depth >= depth
