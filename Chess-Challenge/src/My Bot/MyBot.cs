@@ -58,7 +58,7 @@ public class MyBot : IChessBot
 
         if (b.IsInCheckmate())
             return -32_767;
-        if (b.IsDraw())
+        if (b.IsRepeatedPosition() || b.FiftyMoveCounter >= 100) // a lot faster than IsDraw
             return 0;
         if (depth <= 0)
             /*if (depth > -3)
