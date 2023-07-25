@@ -16,12 +16,14 @@ public class MyBot : IChessBot
     record struct TTEntry // The size of a TTEntry should be 8 + 4 + 2 + 1 + 1 + no padding = 16 bytes
     (
         ulong key, // if we need more space, we could also just store the highest 32 bits since the lowest 23 bits are given by the index, leaving 9 bits unused
-        int bestMoveIdx, // this may not actually be the best move, but the first move wich was good enough to cause a beta cut
+                   // we could also store only the index, using on byte instead of 4, but needing more tokens later on. May be worth it
+                   // if we also merge depth and type and use a 32bit key to get sizeof(TTEntry) down to 8
+        Move bestMove, // this may not actually be the best move, but the first move wich was good enough to cause a beta cut
         short score,
         byte depth,
         sbyte type // -1: upper bound (ie real score may be worse), 0: exact: 1: lower bound
     );
-    //Dictionary<ulong, (ulong, short, byte, sbyte, Move)> transpositionTable = new(); // TODO: Use this uple? Should save some tokens
+    // TODO: Use a tuple instead of a struct? Should save some tokens
     // max heap usage is 256mb, so use 2^23 entries, which should consume 134mb for sizeof(TTEntry) == 16
     TTEntry[] transpositionTable = new TTEntry[8_388_608];
 
@@ -56,7 +58,7 @@ public class MyBot : IChessBot
     int negamax(int depth, int alpha, int beta)
     {
 
-        var legalMoves = b.GetLegalMoves();
+        var unorderedLegalMoves = b.GetLegalMoves();
         if (b.IsInCheckmate())
             return -32_700 - depth; // being checkmated later (eval depth closer to 0) is better (as is checkmating earlier)
         if (b.IsDraw())
@@ -70,17 +72,21 @@ public class MyBot : IChessBot
             }
             else*/
             return eval();
+
+        var bestMove = unorderedLegalMoves[0];
         var lookupVal = transpositionTable[b.ZobristKey & 8_388_607];
+        // reorder moves: First, we try the entry from the transposition table, then captures, then the rest
         if (lookupVal.key == b.ZobristKey)
             if (lookupVal.depth >= depth
                 && (lookupVal.type == 0 || lookupVal.type == -1 && lookupVal.score <= alpha || lookupVal.type == 1 && lookupVal.score >= beta))
                 return lookupVal.score;
-            else // search the most promising move first, which causes great alpha beta bounds (duplicating this move shouldn't really matter)
-                (legalMoves[0], legalMoves[lookupVal.bestMoveIdx]) = (legalMoves[lookupVal.bestMoveIdx], legalMoves[0]);
-                //legalMoves.Prepend(lookupVal.bestMove); // maybe an O(n) operation? The list should be relatively short, though
-        var bestMoveIdx = 0;
+            else // search the most promising move first, which causes great alpha beta bounds
+                bestMove = lookupVal.bestMove;
+        var legalMoves = unorderedLegalMoves.OrderByDescending(move =>
+            // order promotions first, then captures according to how much more valuable the captured piece is compared to the capturing, then normal moves
+            move == bestMove ? 1_000_000 : move.IsPromotion ? (int)move.PromotionPieceType : move.IsCapture ? (int)move.CapturePieceType - (int)move.MovePieceType : -10);
+
         var lowestAlpha = alpha;
-        int i = 0;
         //Debug.Assert(b.GetLegalMoves().Contains(bestMove)); // TODO: This may be false when a zobrist hash collision occurs
         foreach (var move in legalMoves)
         {
@@ -90,16 +96,15 @@ public class MyBot : IChessBot
             if (score > alpha)
             {
                 alpha = score;
-                bestMoveIdx = i;
+                bestMove= move;
                 if (alpha >= beta) break;
             }
-            ++i;
         }
         // always overwrite on hash table collisions (pure hash collisions should be pretty rare, but hash table collision frequent once the table is full)
         // this removes old entries that we don't care about any more at the cost of potentially throwing out useful high-depth results in favor of much
         // more frequent low-depth results
         transpositionTable[b.ZobristKey & 8_388_607]
-            = new(b.ZobristKey, bestMoveIdx, (short)alpha, (byte)depth, (sbyte)(alpha <= lowestAlpha? -1 : alpha >= beta ? 1 : 0));
+            = new(b.ZobristKey, bestMove, (short)alpha, (byte)depth, (sbyte)(alpha <= lowestAlpha? -1 : alpha >= beta ? 1 : 0));
         return alpha;
     }
 
@@ -130,5 +135,4 @@ public class MyBot : IChessBot
         // choosing custom factors (including for the different summmands of `position`) may improve this evaluation, but this already seems relatively decent
         return material + position;
     }
-
 }

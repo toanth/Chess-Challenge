@@ -10,21 +10,25 @@ namespace ChessChallenge.Example
     // Plays randomly otherwise.
     public class EvilBot : IChessBot
     {
-
         Board b;
         // piece values from stockfish's middle game evaluation function. Our bot won't make it to even endgames
         private int[] pieceValues = { 0, 126, 781, 825, 1276, 2538, 0 };
         // maps a zobrist hash of a position to its score, the search depth at which the score was evaluated,
         // the score type (lower bound, exact, upper bound), and the best move
-        record struct TTEntry // The size of a TTEntry should be 2 + 1 + 1 + 2 + (probably 8 for .Net info) + padding = 16 bytes
+        record struct TTEntry // The size of a TTEntry should be 8 + 4 + 2 + 1 + 1 + no padding = 16 bytes
         (
+            ulong key, // if we need more space, we could also just store the highest 32 bits since the lowest 23 bits are given by the index, leaving 9 bits unused
+                       // we could also store only the index, using on byte instead of 4, but needing more tokens later on. May be worth it
+                       // if we also merge depth and type and use a 32bit key to get sizeof(TTEntry) down to 8
+            Move bestMove, // this may not actually be the best move, but the first move wich was good enough to cause a beta cut
             short score,
             byte depth,
-            sbyte type, // -1: upper bound (ie real score may be worse), 0: exact: 1: lower bound
-            Move bestMove // this may not actually be the best move, but the first move wich was good enough to cause a beta cut
+            sbyte type // -1: upper bound (ie real score may be worse), 0: exact: 1: lower bound
         );
-        //Dictionary<ulong, (short, byte, sbyte, Move)> transpositionTable = new();
-        Dictionary<ulong, TTEntry> transpositionTable = new(); // TODO: Replace with tuple?
+        // TODO: Use a tuple instead of a struct? Should save some tokens
+        // max heap usage is 256mb, so use 2^23 entries, which should consume 134mb for sizeof(TTEntry) == 16
+        TTEntry[] transpositionTable = new TTEntry[8_388_608];
+
 
         public Move Think(Board board, Timer timer)
         {
@@ -32,10 +36,9 @@ namespace ChessChallenge.Example
 
             var moves = board.GetLegalMoves();
             var bestMove = moves[0];
-            for (int depth = 1; depth < 4; ++depth) // TODO: Actually use iterative deepening for something; start with 0?
+            for (int depth = 1; depth < 4; ++depth) // iterative deepening using the tranposition table for move ordering
             {
                 var bestScore = -32_767;
-                transpositionTable.Clear();
                 foreach (var move in moves)
                 {
                     b.MakeMove(move);
@@ -46,10 +49,9 @@ namespace ChessChallenge.Example
                         bestMove = move;
                         bestScore = result;
                     }
-                    if (timer.MillisecondsElapsedThisTurn * 8 > timer.MillisecondsRemaining) return bestMove;
+                    if (timer.MillisecondsElapsedThisTurn * 16 > Math.Max(16000, timer.MillisecondsRemaining)) return bestMove;
                 }
             }
-            //Console.WriteLine("TT size: " + transpositionTable.Count);
             return bestMove;
         }
 
@@ -58,8 +60,9 @@ namespace ChessChallenge.Example
         int negamax(int depth, int alpha, int beta)
         {
 
+            var unorderedLegalMoves = b.GetLegalMoves();
             if (b.IsInCheckmate())
-                return -32_767;
+                return -32_700 - depth; // being checkmated later (eval depth closer to 0) is better (as is checkmating earlier)
             if (b.IsDraw())
                 return 0;
             if (depth <= 0)
@@ -71,16 +74,21 @@ namespace ChessChallenge.Example
                 }
                 else*/
                 return eval();
-            var legalMoves = b.GetLegalMoves();
-            if (transpositionTable.TryGetValue(b.ZobristKey, out var lookupVal))
+
+            var bestMove = unorderedLegalMoves[0];
+            var lookupVal = transpositionTable[b.ZobristKey & 8_388_607];
+            // reorder moves: First, we try the entry from the transposition table, then captures, then the rest
+            if (lookupVal.key == b.ZobristKey)
                 if (lookupVal.depth >= depth
                     && (lookupVal.type == 0 || lookupVal.type == -1 && lookupVal.score <= alpha || lookupVal.type == 1 && lookupVal.score >= beta))
                     return lookupVal.score;
-                else // search the most promising move first, which causes great alpha beta bounds (duplicating this move shouldn't really matter)
-                    legalMoves.Prepend(lookupVal.bestMove); // maybe an O(n) operation? The list should be relatively short, though
-            var bestMove = legalMoves[0];
+                else // search the most promising move first, which causes great alpha beta bounds
+                    bestMove = lookupVal.bestMove;
+            var legalMoves = unorderedLegalMoves.OrderByDescending(move =>
+                move == bestMove ? 1_000_000 : move.IsPromotion ? (int)move.PromotionPieceType : move.IsCapture ? (int)move.CapturePieceType : 0);
+
             var lowestAlpha = alpha;
-            Debug.Assert(b.GetLegalMoves().Contains(bestMove)); // TODO: This may be false when a zobrist hash collision occurs
+            //Debug.Assert(b.GetLegalMoves().Contains(bestMove)); // TODO: This may be false when a zobrist hash collision occurs
             foreach (var move in legalMoves)
             {
                 b.MakeMove(move);
@@ -93,7 +101,11 @@ namespace ChessChallenge.Example
                     if (alpha >= beta) break;
                 }
             }
-            transpositionTable[b.ZobristKey] = new((short)alpha, (byte)depth, (sbyte)(alpha <= lowestAlpha ? -1 : alpha >= beta ? 1 : 0), bestMove);
+            // always overwrite on hash table collisions (pure hash collisions should be pretty rare, but hash table collision frequent once the table is full)
+            // this removes old entries that we don't care about any more at the cost of potentially throwing out useful high-depth results in favor of much
+            // more frequent low-depth results
+            transpositionTable[b.ZobristKey & 8_388_607]
+                = new(b.ZobristKey, bestMove, (short)alpha, (byte)depth, (sbyte)(alpha <= lowestAlpha ? -1 : alpha >= beta ? 1 : 0));
             return alpha;
         }
 
@@ -124,6 +136,5 @@ namespace ChessChallenge.Example
             // choosing custom factors (including for the different summmands of `position`) may improve this evaluation, but this already seems relatively decent
             return material + position;
         }
-
     }
 }
