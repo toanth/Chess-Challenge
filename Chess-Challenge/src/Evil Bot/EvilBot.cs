@@ -38,8 +38,8 @@ namespace ChessChallenge.Example
 
         public Move Think(Board board, Timer theTimer)
         {
-            // Ideas to try out: Better eval (based on piece square tables), quiescence search (aka forced capture search, a must have now that we have move ordering),
-            // (relative) history buffer, null move pruning, reverse futility pruning
+            // Ideas to try out: Better eval (based on piece square tables), removing both b.IsDraw() and b.IsInCheckmate() from the leaf code path to avoid
+            // calling GetLegalMoves(), (relative) history buffer, null move pruning, reverse futility pruning
             b = board;
             timer = theTimer;
 
