@@ -10,7 +10,7 @@ namespace ChessChallenge.Example
     // Plays randomly otherwise.
     public class EvilBot : IChessBot
     {
-        Board b;
+    Board b;
         // piece values from stockfish's middle game evaluation function. Our bot won't make it to even endgames
         private int[] pieceValues = { 0, 126, 781, 825, 1276, 2538, 0 };
         // maps a zobrist hash of a position to its score, the search depth at which the score was evaluated,
@@ -85,7 +85,8 @@ namespace ChessChallenge.Example
                 else // search the most promising move first, which causes great alpha beta bounds
                     bestMove = lookupVal.bestMove;
             var legalMoves = unorderedLegalMoves.OrderByDescending(move =>
-                move == bestMove ? 1_000_000 : move.IsPromotion ? (int)move.PromotionPieceType : move.IsCapture ? (int)move.CapturePieceType : 0);
+                // order promotions first, then captures according to how much more valuable the captured piece is compared to the capturing, then normal moves
+                move == bestMove ? 1_000_000 : move.IsPromotion ? (int)move.PromotionPieceType : move.IsCapture ? (int)move.CapturePieceType - (int)move.MovePieceType : -10);
 
             var lowestAlpha = alpha;
             //Debug.Assert(b.GetLegalMoves().Contains(bestMove)); // TODO: This may be false when a zobrist hash collision occurs

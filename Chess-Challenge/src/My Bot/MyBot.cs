@@ -34,7 +34,7 @@ public class MyBot : IChessBot
 
         var moves = board.GetLegalMoves();
         var bestMove = moves[0];
-        for (int depth = 1; depth < 4; ++depth) // iterative deepening using the tranposition table for move ordering
+        for (int depth = 1; depth < 5; ++depth) // iterative deepening using the tranposition table for move ordering
         {
             var bestScore = -32_767;
             foreach (var move in moves)
@@ -47,7 +47,7 @@ public class MyBot : IChessBot
                     bestMove = move;
                     bestScore = result;
                 }
-                if (timer.MillisecondsElapsedThisTurn * 16 > Math.Max(16000, timer.MillisecondsRemaining)) return bestMove;
+                if (timer.MillisecondsElapsedThisTurn > Math.Max(750, timer.MillisecondsRemaining / 32)) return bestMove;
             }
         }
         return bestMove;
