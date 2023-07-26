@@ -33,8 +33,8 @@ public class MyBot : IChessBot
 
     public Move Think(Board board, Timer theTimer)
     {
-        // Ideas to try out: Better eval (based on piece square tables), quiescence search (aka forced capture search, a must have now that we have move ordering),
-        // (relative) history buffer, null move pruning, reverse futility pruning
+        // Ideas to try out: Better eval (based on piece square tables), removing both b.IsDraw() and b.IsInCheckmate() from the leaf code path to avoid
+        // calling GetLegalMoves(), (relative) history buffer, null move pruning, reverse futility pruning
         b = board;
         timer = theTimer;
 
@@ -55,37 +55,40 @@ public class MyBot : IChessBot
             return -32_700 - remainingDepth; // being checkmated later (eval depth closer to 0) is better (as is checkmating earlier)
         if (b.IsDraw())
             return 0;
-        if (remainingDepth <= 0)
-            /*if (depth > -3)
-            {
-                var captures = b.GetLegalMoves(true);
-                if (captures.Length > 0) score = Math.Max(alpha, -search_score(captures, depth - 1, -beta, -alpha));
-                else score = eval();
-            }
-            else*/
-            return eval();
 
-        var legalMoves = b.GetLegalMoves().OrderByDescending(move =>
-            // order promotions first, then captures according to how much more valuable the captured piece is compared to the capturing, then normal moves
+        bool quiescent = remainingDepth <= 0;
+        var legalMoves = b.GetLegalMoves(quiescent).OrderByDescending(move =>
+            // order promotions first, then captures according to how much more valuable the captured piece is compared to
+            // the capturing (aka MVV-LVA), then normal moves
             move.IsPromotion ? (int)move.PromotionPieceType : move.IsCapture ? (int)move.CapturePieceType - (int)move.MovePieceType : -10);
-        var localBestMove = legalMoves.First();
-        var lookupVal = transpositionTable[b.ZobristKey & 8_388_607];
-        // reorder moves: First, we try the entry from the transposition table, then captures, then the rest
-        if (lookupVal.key == b.ZobristKey)
-            if (lookupVal.depth >= remainingDepth && !isRoot // test for isRoot to make sure bestRootMove gets set
-                && (lookupVal.type == 0 || lookupVal.type < 0 && lookupVal.score <= alpha || lookupVal.type > 0 && lookupVal.score >= beta))
-                return lookupVal.score;
-            else // search the most promising move first, which creates great alpha beta bounds
-            {
-                localBestMove = lookupVal.bestMove;
-                legalMoves = legalMoves.OrderByDescending(move => move == localBestMove); // stable sorting, also works in case of a zobrist hash collision
-            }
+        if (legalMoves.Count() == 0) return eval();
+        Move localBestMove = legalMoves.First();
 
-        var lowestAlpha = alpha;
+        if (quiescent)
+        {
+            alpha = Math.Max(alpha, eval());
+            if (alpha >= beta) return beta; // TODO: Does it make a difference if we return alpha here, ie fail soft?
+        }
+        else
+        {
+            var lookupVal = transpositionTable[b.ZobristKey & 8_388_607];
+            // reorder moves: First, we try the entry from the transposition table, then captures, then the rest
+            if (lookupVal.key == b.ZobristKey)
+                if (lookupVal.depth >= remainingDepth && !isRoot // test for isRoot to make sure bestRootMove gets set
+                    && (lookupVal.type == 0 || lookupVal.type < 0 && lookupVal.score <= alpha || lookupVal.type > 0 && lookupVal.score >= beta))
+                    return lookupVal.score;
+                else // search the most promising move first, which creates great alpha beta bounds
+                {
+                    localBestMove = lookupVal.bestMove;
+                    legalMoves = legalMoves.OrderByDescending(move => move == localBestMove); // stable sorting, also works in case of a zobrist hash collision
+                }
+        }
+
+        int lowestAlpha = alpha;
         foreach (var move in legalMoves)
         {
             b.MakeMove(move);
-            var score = -negamax(remainingDepth - 1, -beta, -alpha, false);
+            int score = -negamax(remainingDepth - 1, -beta, -alpha, false);
             b.UndoMove(move);
             if (score > alpha)
             {
@@ -96,12 +99,12 @@ public class MyBot : IChessBot
             // testing this only in the Think function introduces too much variance into the time needed to calculate a move
             if (isRoot && timer.MillisecondsElapsedThisTurn > Math.Max(750, timer.MillisecondsRemaining / 32)) break;
         }
-
+        if (!quiescent)
         // always overwrite on hash table collisions (pure hash collisions should be pretty rare, but hash table collision frequent once the table is full)
         // this removes old entries that we don't care about any more at the cost of potentially throwing out useful high-depth results in favor of much
         // more frequent low-depth results
-        transpositionTable[b.ZobristKey & 8_388_607]
-            = new(b.ZobristKey, localBestMove, (short)alpha, (byte)remainingDepth, (sbyte)(alpha <= lowestAlpha? -1 : alpha >= beta ? 1 : 0));
+            transpositionTable[b.ZobristKey & 8_388_607]
+                = new(b.ZobristKey, localBestMove, (short)alpha, (byte)remainingDepth, (sbyte)(alpha <= lowestAlpha? -1 : alpha >= beta ? 1 : 0));
 
         if (isRoot) bestRootMove = localBestMove;
         return alpha;

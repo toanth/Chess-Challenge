@@ -10,7 +10,7 @@ namespace ChessChallenge.Example
     // Plays randomly otherwise.
     public class EvilBot : IChessBot
     {
-    Board b;
+        Board b;
         // piece values from stockfish's middle game evaluation function. Our bot won't make it to even endgames
         private int[] pieceValues = { 0, 126, 781, 825, 1276, 2538, 0 };
         // maps a zobrist hash of a position to its score, the search depth at which the score was evaluated,
@@ -18,8 +18,8 @@ namespace ChessChallenge.Example
         record struct TTEntry // The size of a TTEntry should be 8 + 4 + 2 + 1 + 1 + no padding = 16 bytes
         (
             ulong key, // if we need more space, we could also just store the highest 32 bits since the lowest 23 bits are given by the index, leaving 9 bits unused
-                       // we could also store only the index, using on byte instead of 4, but needing more tokens later on. May be worth it
-                       // if we also merge depth and type and use a 32bit key to get sizeof(TTEntry) down to 8
+                       // we could also store only the move index, using 1 byte instead of 4, but needing more tokens later on.
+                       // May be worth it if we also merge depth and type and use a 32bit key to get sizeof(TTEntry) down to 8
             Move bestMove, // this may not actually be the best move, but the first move wich was good enough to cause a beta cut
             short score,
             byte depth,
@@ -27,86 +27,91 @@ namespace ChessChallenge.Example
         );
         // TODO: Use a tuple instead of a struct? Should save some tokens
         // max heap usage is 256mb, so use 2^23 entries, which should consume 134mb for sizeof(TTEntry) == 16
-        TTEntry[] transpositionTable = new TTEntry[8_388_608];
+        private TTEntry[] transpositionTable = new TTEntry[8_388_608];
+
+        // Each recursive call to negamax can (but doesn't have to) set this value; the toplevel call sets it.
+        // returning (Move, int) from negamax() would be prettier but use more tokens
+        private Move bestRootMove;
+
+        private Timer timer;
 
 
-        public Move Think(Board board, Timer timer)
+        public Move Think(Board board, Timer theTimer)
         {
+            // Ideas to try out: Better eval (based on piece square tables), quiescence search (aka forced capture search, a must have now that we have move ordering),
+            // (relative) history buffer, null move pruning, reverse futility pruning
             b = board;
+            timer = theTimer;
 
             var moves = board.GetLegalMoves();
-            var bestMove = moves[0];
-            for (int depth = 1; depth < 5; ++depth) // iterative deepening using the tranposition table for move ordering
+            for (int depth = 1; depth < 6; ++depth) // iterative deepening using the tranposition table for move ordering
             {
-                var bestScore = -32_767;
-                foreach (var move in moves)
-                {
-                    b.MakeMove(move);
-                    var result = -negamax(depth, -32_767, -bestScore);
-                    b.UndoMove(move);
-                    if (result > bestScore)
-                    {
-                        bestMove = move;
-                        bestScore = result;
-                    }
-                    if (timer.MillisecondsElapsedThisTurn * 32 > Math.Max(32000, timer.MillisecondsRemaining)) return bestMove;
-                }
+                negamax(depth, -32_767, 32_767, true); // TODO: PVS, ie reuse score estimates to set alpha and beta?
             }
-            return bestMove;
+            return bestRootMove;
         }
 
         // return the score from the point of view of the player who can move now,
         // ie a high value means that the current playerlikes their position
-        int negamax(int depth, int alpha, int beta)
+        // also sets bestMove if this node is expanded (ie if the function calls itself recursively)
+        int negamax(int remainingDepth, int alpha, int beta, bool isRoot)
         {
-
-            var unorderedLegalMoves = b.GetLegalMoves();
             if (b.IsInCheckmate())
-                return -32_700 - depth; // being checkmated later (eval depth closer to 0) is better (as is checkmating earlier)
+                return -32_700 - remainingDepth; // being checkmated later (eval depth closer to 0) is better (as is checkmating earlier)
             if (b.IsDraw())
                 return 0;
-            if (depth <= 0)
-                /*if (depth > -3)
-                {
-                    var captures = b.GetLegalMoves(true);
-                    if (captures.Length > 0) score = Math.Max(alpha, -search_score(captures, depth - 1, -beta, -alpha));
-                    else score = eval();
-                }
-                else*/
-                return eval();
 
-            var bestMove = unorderedLegalMoves[0];
-            var lookupVal = transpositionTable[b.ZobristKey & 8_388_607];
-            // reorder moves: First, we try the entry from the transposition table, then captures, then the rest
-            if (lookupVal.key == b.ZobristKey)
-                if (lookupVal.depth >= depth
-                    && (lookupVal.type == 0 || lookupVal.type == -1 && lookupVal.score <= alpha || lookupVal.type == 1 && lookupVal.score >= beta))
-                    return lookupVal.score;
-                else // search the most promising move first, which causes great alpha beta bounds
-                    bestMove = lookupVal.bestMove;
-            var legalMoves = unorderedLegalMoves.OrderByDescending(move =>
-                // order promotions first, then captures according to how much more valuable the captured piece is compared to the capturing, then normal moves
-                move == bestMove ? 1_000_000 : move.IsPromotion ? (int)move.PromotionPieceType : move.IsCapture ? (int)move.CapturePieceType - (int)move.MovePieceType : -10);
+            bool quiescent = remainingDepth <= 0;
+            var legalMoves = b.GetLegalMoves(quiescent).OrderByDescending(move =>
+                // order promotions first, then captures according to how much more valuable the captured piece is compared to
+                // the capturing (aka MVV-LVA), then normal moves
+                move.IsPromotion ? (int)move.PromotionPieceType : move.IsCapture ? (int)move.CapturePieceType - (int)move.MovePieceType : -10);
+            if (legalMoves.Count() == 0) return eval();
+            Move localBestMove = legalMoves.First();
 
-            var lowestAlpha = alpha;
-            //Debug.Assert(b.GetLegalMoves().Contains(bestMove)); // TODO: This may be false when a zobrist hash collision occurs
+            if (quiescent)
+            {
+                alpha = Math.Max(alpha, eval());
+                if (alpha >= beta) return beta; // TODO: Does it make a difference if we return alpha here, ie fail soft?
+            }
+            else
+            {
+                var lookupVal = transpositionTable[b.ZobristKey & 8_388_607];
+                // reorder moves: First, we try the entry from the transposition table, then captures, then the rest
+                if (lookupVal.key == b.ZobristKey)
+                    if (lookupVal.depth >= remainingDepth && !isRoot // test for isRoot to make sure bestRootMove gets set
+                        && (lookupVal.type == 0 || lookupVal.type < 0 && lookupVal.score <= alpha || lookupVal.type > 0 && lookupVal.score >= beta))
+                        return lookupVal.score;
+                    else // search the most promising move first, which creates great alpha beta bounds
+                    {
+                        localBestMove = lookupVal.bestMove;
+                        legalMoves = legalMoves.OrderByDescending(move => move == localBestMove); // stable sorting, also works in case of a zobrist hash collision
+                    }
+            }
+
+            int lowestAlpha = alpha;
             foreach (var move in legalMoves)
             {
                 b.MakeMove(move);
-                var score = -negamax(depth - 1, -beta, -alpha);
+                int score = -negamax(remainingDepth - 1, -beta, -alpha, false);
                 b.UndoMove(move);
                 if (score > alpha)
                 {
                     alpha = score;
-                    bestMove = move;
+                    localBestMove = move;
                     if (alpha >= beta) break;
                 }
+                // testing this only in the Think function introduces too much variance into the time needed to calculate a move
+                if (isRoot && timer.MillisecondsElapsedThisTurn > Math.Max(750, timer.MillisecondsRemaining / 32)) break;
             }
-            // always overwrite on hash table collisions (pure hash collisions should be pretty rare, but hash table collision frequent once the table is full)
-            // this removes old entries that we don't care about any more at the cost of potentially throwing out useful high-depth results in favor of much
-            // more frequent low-depth results
-            transpositionTable[b.ZobristKey & 8_388_607]
-                = new(b.ZobristKey, bestMove, (short)alpha, (byte)depth, (sbyte)(alpha <= lowestAlpha ? -1 : alpha >= beta ? 1 : 0));
+            if (!quiescent)
+                // always overwrite on hash table collisions (pure hash collisions should be pretty rare, but hash table collision frequent once the table is full)
+                // this removes old entries that we don't care about any more at the cost of potentially throwing out useful high-depth results in favor of much
+                // more frequent low-depth results
+                transpositionTable[b.ZobristKey & 8_388_607]
+                    = new(b.ZobristKey, localBestMove, (short)alpha, (byte)remainingDepth, (sbyte)(alpha <= lowestAlpha ? -1 : alpha >= beta ? 1 : 0));
+
+            if (isRoot) bestRootMove = localBestMove;
             return alpha;
         }
 
