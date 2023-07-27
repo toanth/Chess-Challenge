@@ -11,7 +11,7 @@ namespace ChessChallenge.Example
     public class EvilBot : IChessBot
     {
         Board b;
-        // piece values from stockfish's middle game evaluation function. Our bot won't make it to even endgames
+        // piece values from stockfish's middle game evaluation function. TODO: Add support for endgames
         private int[] pieceValues = { 0, 126, 781, 825, 1276, 2538, 0 };
         // maps a zobrist hash of a position to its score, the search depth at which the score was evaluated,
         // the score type (lower bound, exact, upper bound), and the best move
@@ -44,7 +44,8 @@ namespace ChessChallenge.Example
             timer = theTimer;
 
             var moves = board.GetLegalMoves();
-            for (int depth = 1; depth < 6; ++depth) // iterative deepening using the tranposition table for move ordering
+            // iterative deepening using the tranposition table for move ordering
+            for (int depth = 1; depth < 6; ++depth) // starting with depth 0 wouldn't only be useless but also incorrect due to assumptions in negamax
             {
                 negamax(depth, -32_767, 32_767, true); // TODO: PVS, ie reuse score estimates to set alpha and beta?
             }
@@ -56,23 +57,28 @@ namespace ChessChallenge.Example
         // also sets bestMove if this node is expanded (ie if the function calls itself recursively)
         int negamax(int remainingDepth, int alpha, int beta, bool isRoot)
         {
-            if (b.IsInCheckmate())
+            if (b.IsInCheckmate()) // TODO: Avoid (indirectly) calling GetLegalMoves in leafs, which is very slow apparently
                 return -32_700 - remainingDepth; // being checkmated later (eval depth closer to 0) is better (as is checkmating earlier)
             if (b.IsDraw())
                 return 0;
 
             bool quiescent = remainingDepth <= 0;
             var legalMoves = b.GetLegalMoves(quiescent).OrderByDescending(move =>
-                // order promotions first, then captures according to how much more valuable the captured piece is compared to
+                // order promotions and captures first, according to how much more valuable the captured piece is compared to
                 // the capturing (aka MVV-LVA), then normal moves
                 move.IsPromotion ? (int)move.PromotionPieceType : move.IsCapture ? (int)move.CapturePieceType - (int)move.MovePieceType : -10);
-            if (legalMoves.Count() == 0) return eval();
+            if (legalMoves.Count() == 0) return eval(); // can only happen in quiescent search at the moment
             Move localBestMove = legalMoves.First();
 
             if (quiescent)
             {
-                alpha = Math.Max(alpha, eval());
-                if (alpha >= beta) return beta; // TODO: Does it make a difference if we return alpha here, ie fail soft?
+                int staticEval = eval();
+                if (staticEval >= beta) return beta; // TODO: Does it make a difference if we return alpha here, ie fail soft?
+                                                     // delta pruning, a version of futility pruning: If the current position is hopeless, abort
+                                                     // technically, we should also check capturing promotions, but they are rare so we don't care
+                if (staticEval + pieceValues[(int)localBestMove.CapturePieceType] + 500 < alpha) return alpha;
+                alpha = Math.Max(alpha, staticEval);
+
             }
             else
             {
@@ -82,7 +88,7 @@ namespace ChessChallenge.Example
                     if (lookupVal.depth >= remainingDepth && !isRoot // test for isRoot to make sure bestRootMove gets set
                         && (lookupVal.type == 0 || lookupVal.type < 0 && lookupVal.score <= alpha || lookupVal.type > 0 && lookupVal.score >= beta))
                         return lookupVal.score;
-                    else // search the most promising move first, which creates great alpha beta bounds
+                    else // search the most promising move (as determined by previous searches) first, which creates great alpha beta bounds
                     {
                         localBestMove = lookupVal.bestMove;
                         legalMoves = legalMoves.OrderByDescending(move => move == localBestMove); // stable sorting, also works in case of a zobrist hash collision
