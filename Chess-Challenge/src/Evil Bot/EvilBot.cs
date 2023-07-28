@@ -29,6 +29,10 @@ namespace ChessChallenge.Example
         // max heap usage is 256mb, so use 2^23 entries, which should consume 134mb for sizeof(TTEntry) == 16
         private TTEntry[] transpositionTable = new TTEntry[8_388_608];
 
+        // For each depth, store 2 killer moves: A killer move is a non-capturing move that caused a beta cutoff
+        // (ie early return due to score >= beta)  in a previous node. This is then used for move ordering
+        private Move[] killerMoves = new Move[200]; // we're not searching more than 100 moves ahead, even with quiescent search
+
         // Each recursive call to negamax can (but doesn't have to) set this value; the toplevel call sets it.
         // returning (Move, int) from negamax() would be prettier but use more tokens
         private Move bestRootMove;
@@ -38,8 +42,10 @@ namespace ChessChallenge.Example
 
         public Move Think(Board board, Timer theTimer)
         {
-            // Ideas to try out: Better eval (based on piece square tables), removing both b.IsDraw() and b.IsInCheckmate() from the leaf code path to avoid
-            // calling GetLegalMoves(), (relative) history buffer, null move pruning, reverse futility pruning
+            // Ideas to try out: Better positional eval (based on piece square tables), removing both b.IsDraw() and b.IsInCheckmate() from the leaf code path to avoid
+            // calling GetLegalMoves(), updating a materialDif variable instead of recalculating that from scratch in every eval() call,
+            // (relative) history buffer, null move pruning, reverse futility pruning
+            // Also, apparently LINQ is really slow for no good reason, so if we can spare the tokens we may want to use a manual for loop :(
             b = board;
             timer = theTimer;
 
@@ -47,36 +53,46 @@ namespace ChessChallenge.Example
             // iterative deepening using the tranposition table for move ordering
             for (int depth = 1; depth < 6; ++depth) // starting with depth 0 wouldn't only be useless but also incorrect due to assumptions in negamax
             {
-                negamax(depth, -32_767, 32_767, true); // TODO: PVS, ie reuse score estimates to set alpha and beta?
+                // TODO: PVS, ie reuse score estimates to set alpha and beta?
+                negamax(depth, -32_767, 32_767, 0);
+                //Console.WriteLine("Score: " + negamax(depth, -32_767, 32_767, true));
             }
+            //Console.WriteLine();
             return bestRootMove;
         }
 
         // return the score from the point of view of the player who can move now,
         // ie a high value means that the current playerlikes their position
         // also sets bestMove if this node is expanded (ie if the function calls itself recursively)
-        int negamax(int remainingDepth, int alpha, int beta, bool isRoot)
+        int negamax(int remainingDepth, int alpha, int beta, int ply)
         {
             if (b.IsInCheckmate()) // TODO: Avoid (indirectly) calling GetLegalMoves in leafs, which is very slow apparently
                 return -32_700 - remainingDepth; // being checkmated later (eval depth closer to 0) is better (as is checkmating earlier)
             if (b.IsDraw())
-                return 0;
+                return 0; // TODO: Use timer.OpponentMillisecondsRemaining()?
 
+            bool isRoot = ply == 0;
+            int killerIdx = ply * 2;
             bool quiescent = remainingDepth <= 0;
             var legalMoves = b.GetLegalMoves(quiescent).OrderByDescending(move =>
                 // order promotions and captures first, according to how much more valuable the captured piece is compared to
-                // the capturing (aka MVV-LVA), then normal moves
-                move.IsPromotion ? (int)move.PromotionPieceType : move.IsCapture ? (int)move.CapturePieceType - (int)move.MovePieceType : -10);
+                // the capturing (aka MVV-LVA), then killer moves, then normal moves
+                move.IsPromotion ? (int)move.PromotionPieceType : move.IsCapture ? (int)move.CapturePieceType - (int)move.MovePieceType :
+                    move == killerMoves[killerIdx] || move == killerMoves[killerIdx + 1] ? -10 : -100);
             if (legalMoves.Count() == 0) return eval(); // can only happen in quiescent search at the moment
             Move localBestMove = legalMoves.First();
 
             if (quiescent)
             {
                 int staticEval = eval();
-                if (staticEval >= beta) return beta; // TODO: Does it make a difference if we return alpha here, ie fail soft?
+                if (staticEval >= beta) return beta; // TODO: Does it make a difference if we return staticEval here, ie fail soft?
                                                      // delta pruning, a version of futility pruning: If the current position is hopeless, abort
                                                      // technically, we should also check capturing promotions, but they are rare so we don't care
                 if (staticEval + pieceValues[(int)localBestMove.CapturePieceType] + 500 < alpha) return alpha;
+                // The following is the "correct" way of doing it, but doesn't seem to be stronger in practice yet uses more tokens
+                // TODO: At some point in the future, test again if this gives better results (maybe it's not better now due to a problem elsewhere?)
+                //if (staticEval + pieceValues[legalMoves.Select(move => (int)move.CapturePieceType).Max()] + 500 < alpha) return alpha;
+                // The safety margin of 500 means we will consider trading the exchange, but there may be better values
                 alpha = Math.Max(alpha, staticEval);
 
             }
@@ -99,15 +115,24 @@ namespace ChessChallenge.Example
             foreach (var move in legalMoves)
             {
                 b.MakeMove(move);
-                int score = -negamax(remainingDepth - 1, -beta, -alpha, false);
+                int score = -negamax(remainingDepth - 1, -beta, -alpha, ply + 1);
                 b.UndoMove(move);
                 if (score > alpha)
                 {
                     alpha = score;
                     localBestMove = move;
-                    if (alpha >= beta) break;
+                    if (alpha >= beta)
+                    {
+                        if (!move.IsCapture)
+                        {
+                            killerMoves[killerIdx + 1] = killerMoves[killerIdx];
+                            killerMoves[killerIdx] = move;
+                        }
+                        break;
+                    }
                 }
                 // testing this only in the Think function introduces too much variance into the time needed to calculate a move
+                // TODO: Use timer.GameStartTimeMilliseconds() / 64 rather than hard-coded 750 ms maximum time
                 if (isRoot && timer.MillisecondsElapsedThisTurn > Math.Max(750, timer.MillisecondsRemaining / 32)) break;
             }
             if (!quiescent)

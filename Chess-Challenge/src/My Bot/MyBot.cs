@@ -36,7 +36,8 @@ public class MyBot : IChessBot
 
     // For each depth, store 2 killer moves: A killer move is a non-capturing move that caused a beta cutoff
     // (ie early return due to score >= beta)  in a previous node. This is then used for move ordering
-    private Move[] killerMoves = new Move[200]; // we're not searching more than 100 moves ahead, even with quiescent search
+    private Move[] killerMoves = new Move[256]; // we're not searching more than 128 moves ahead, even with quiescent search
+
 
     // Each recursive call to negamax can (but doesn't have to) set this value; the toplevel call sets it.
     // returning (Move, int) from negamax() would be prettier but use more tokens
@@ -44,25 +45,69 @@ public class MyBot : IChessBot
 
     private Timer timer;
 
+#if DEBUG
+    int allNodeCtr;
+    int nonQuiescentNodeCtr;
+    int betaCutoffCtr;
+    // node where remainingDepth is at least 2, so move ordering actually matters
+    // (it also matters for quiescent nodes but it's difficult to count non-leaf quiescent nodes and they don't use the TT, would skew results)
+    int parentOfInnerNodeCtr;
+    int parentOfInnerNodeBetaCutoffCtr;
+    int numTTEntries;
+    int numTTCollisions;
+#endif
+
+
+    bool stopThinking() // TODO: Can we save tokens by using properties instead of methods?
+    {
+        // The / 32 makes the most sense when the game last for another 32 moves. Currently, poor engine performance causes unnecesarily
+        // long games but as we improve our engine we should see less time trouble overall.
+        return timer.MillisecondsElapsedThisTurn > Math.Min(timer.GameStartTimeMilliseconds / 64, timer.MillisecondsRemaining / 32);
+    }
 
     public Move Think(Board board, Timer theTimer)
     {
         // Ideas to try out: Better positional eval (based on piece square tables), removing both b.IsDraw() and b.IsInCheckmate() from the leaf code path to avoid
         // calling GetLegalMoves(), updating a materialDif variable instead of recalculating that from scratch in every eval() call,
-        // (relative) history buffer, null move pruning, reverse futility pruning
+        // null move pruning, reverse futility pruning, check extension (by 1 ply, no need to limit number of extensions),
+        // contempt factor based on time difference (eg timer.MillisecondsRemaining / timer.OpponentMillisecondsRemaining * 100 + 50)
         // Also, apparently LINQ is really slow for no good reason, so if we can spare the tokens we may want to use a manual for loop :(
+        // Also, ideally we would have a pipeline where we compare our bot's move against stockfish and see if we blundered to spot potential bugs
         b = board;
         timer = theTimer;
 
         var moves = board.GetLegalMoves();
-        // iterative deepening using the tranposition table for move ordering
-        for (int depth = 1; depth < 6; ++depth) // starting with depth 0 wouldn't only be useless but also incorrect due to assumptions in negamax
-        {
-            // TODO: PVS, ie reuse score estimates to set alpha and beta?
-            negamax(depth, -32_767, 32_767, 0);
-            //Console.WriteLine("Score: " + negamax(depth, -32_767, 32_767, true));
+        // iterative deepening using the tranposition table for move ordering; without the bound depth may
+        // exceed 256 in case of forced checkmates, but that would overflow the TT entry and could potentially create problems
+        for (int depth = 1; depth < 50 /*&& !stopThinking()*/; ++depth) // starting with depth 0 wouldn't only be useless but also incorrect due to assumptions in negamax
+#if DEBUG
+        { // uncomment `&& !stopThinking()` for slightly more readable debug output
+            int score = negamax(depth, -30_000, 30_000, 0);
+            Console.WriteLine("Score: " +  score + ", best move: " + bestRootMove.ToString());
+            var ttEntry = transpositionTable[board.ZobristKey & 8_388_607];
+            Console.WriteLine("Current TT entry: " + ttEntry.ToString());
+            // might fail if there is a zobrist hash collision (not just a table collision!) between the current position and a non-quiescent
+            // position reached during this position's eval, and the time is up. But that's very unlikely, so the assertion stays.
+            Debug.Assert(ttEntry.bestMove == bestRootMove || ttEntry.key != b.ZobristKey);
+            Debug.Assert(ttEntry.score != 12345); // the canary value from cancelled searches, would require +5 queens be computed normally
         }
-        //Console.WriteLine();
+#else
+            // TODO: PVS, ie reuse score estimates to set alpha and beta?
+            negamax(depth, -30_000, 30_000, 0);
+#endif
+#if DEBUG
+        Console.WriteLine("All nodes: " + allNodeCtr + ", non quiescent: " + nonQuiescentNodeCtr + ", beta cutoff: " + betaCutoffCtr
+            + ", percent cutting (lower is better): " + (100.0 * betaCutoffCtr / allNodeCtr).ToString("0.0")
+            + ", percent cutting for parents of inner nodes: " + (100.0 * parentOfInnerNodeBetaCutoffCtr / parentOfInnerNodeCtr).ToString("0.0")
+            + ", TT occupancy in percent: " + (100.0 * numTTEntries / transpositionTable.Length).ToString("0.0")
+            + ", TT collisions: " + numTTCollisions + ", num TT writes: " + (numTTEntries + numTTCollisions));
+        Console.WriteLine();
+        allNodeCtr = 0;
+        nonQuiescentNodeCtr = 0;
+        betaCutoffCtr = 0;
+        parentOfInnerNodeCtr = 0;
+        parentOfInnerNodeBetaCutoffCtr = 0;
+#endif
         return bestRootMove;
     }
 
@@ -71,21 +116,30 @@ public class MyBot : IChessBot
     // also sets bestMove if this node is expanded (ie if the function calls itself recursively)
     int negamax(int remainingDepth, int alpha, int beta, int ply)
     {
+#if DEBUG
+        ++allNodeCtr;
+        if (remainingDepth > 0) ++nonQuiescentNodeCtr;
+        if (remainingDepth > 1) ++parentOfInnerNodeCtr;
+#endif
+
         if (b.IsInCheckmate()) // TODO: Avoid (indirectly) calling GetLegalMoves in leafs, which is very slow apparently
-            return -32_700 - remainingDepth; // being checkmated later (eval depth closer to 0) is better (as is checkmating earlier)
+            return -32_000 + ply; // being checkmated later is better (as is checkmating earlier)
         if (b.IsDraw())
             return 0; // TODO: Use timer.OpponentMillisecondsRemaining()?
+
+        //if (stopThinking()) return 12345; // the value won't be used, to use a canary to detect bugs
 
         bool isRoot = ply == 0;
         int killerIdx = ply * 2;
         bool quiescent = remainingDepth <= 0;
         var legalMoves = b.GetLegalMoves(quiescent).OrderByDescending(move =>
             // order promotions and captures first, according to how much more valuable the captured piece is compared to
-            // the capturing (aka MVV-LVA), then killer moves, then normal moves
+            // the capturing (similar to MVV-LVA, but this seems to work better?), then killer moves, then normal moves
             move.IsPromotion ? (int)move.PromotionPieceType : move.IsCapture ? (int)move.CapturePieceType - (int)move.MovePieceType :
                 move == killerMoves[killerIdx] || move == killerMoves[killerIdx + 1] ? -10: -100);
         if (legalMoves.Count() == 0) return eval(); // can only happen in quiescent search at the moment
         Move localBestMove = legalMoves.First();
+
 
         if (quiescent)
         {
@@ -99,7 +153,6 @@ public class MyBot : IChessBot
             //if (staticEval + pieceValues[legalMoves.Select(move => (int)move.CapturePieceType).Max()] + 500 < alpha) return alpha;
             // The safety margin of 500 means we will consider trading the exchange, but there may be better values
             alpha = Math.Max(alpha, staticEval);
-
         }
         else
         {
@@ -122,12 +175,20 @@ public class MyBot : IChessBot
             b.MakeMove(move);
             int score = -negamax(remainingDepth - 1, -beta, -alpha, ply + 1);
             b.UndoMove(move);
+
+            // testing this only in the Think function introduces too much variance into the time needed to calculate a move
+            if (stopThinking()) return 12345; // the value won't be used, to use a canary to detect bugs
+
             if (score > alpha)
             {
                 alpha = score;
                 localBestMove = move;
                 if (alpha >= beta)
                 {
+#if DEBUG
+                    ++betaCutoffCtr;
+                    if (remainingDepth > 1) ++parentOfInnerNodeBetaCutoffCtr;
+#endif
                     if (!move.IsCapture)
                     {
                         killerMoves[killerIdx + 1] = killerMoves[killerIdx];
@@ -136,20 +197,25 @@ public class MyBot : IChessBot
                     break;
                 }
             }
-            // testing this only in the Think function introduces too much variance into the time needed to calculate a move
-            // TODO: Use timer.GameStartTimeMilliseconds() / 64 rather than hard-coded 750 ms maximum time
-            if (isRoot && timer.MillisecondsElapsedThisTurn > Math.Max(750, timer.MillisecondsRemaining / 32)) break;
         }
+#if DEBUG
+        if (!quiescent) // don't fold into actual !quiescent test because then we'd need {}, adding an extra token
+        {
+            if (transpositionTable[b.ZobristKey & 8_388_607].key == 0) ++numTTEntries;
+            else ++numTTCollisions;
+        }
+#endif
         if (!quiescent)
         // always overwrite on hash table collisions (pure hash collisions should be pretty rare, but hash table collision frequent once the table is full)
         // this removes old entries that we don't care about any more at the cost of potentially throwing out useful high-depth results in favor of much
         // more frequent low-depth results
             transpositionTable[b.ZobristKey & 8_388_607]
-                = new(b.ZobristKey, localBestMove, (short)alpha, (byte)remainingDepth, (sbyte)(alpha <= lowestAlpha? -1 : alpha >= beta ? 1 : 0));
+                = new(b.ZobristKey, localBestMove, (short)alpha, (byte)remainingDepth, (sbyte)(alpha <= lowestAlpha ? -1 : alpha >= beta ? 1 : 0));
 
         if (isRoot) bestRootMove = localBestMove;
         return alpha;
     }
+
 
     int eval()
     {
