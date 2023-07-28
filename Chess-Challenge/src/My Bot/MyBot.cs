@@ -12,6 +12,7 @@ using ChessChallenge.API;
 /// - quiescent search
 /// - delta pruning
 /// - killer heuristic
+/// - check extension
 /// </summary>
 public class MyBot : IChessBot
 {
@@ -55,6 +56,7 @@ public class MyBot : IChessBot
     int parentOfInnerNodeBetaCutoffCtr;
     int numTTEntries;
     int numTTCollisions;
+    int numTranspositions;
 #endif
 
 
@@ -69,7 +71,7 @@ public class MyBot : IChessBot
     {
         // Ideas to try out: Better positional eval (based on piece square tables), removing both b.IsDraw() and b.IsInCheckmate() from the leaf code path to avoid
         // calling GetLegalMoves(), updating a materialDif variable instead of recalculating that from scratch in every eval() call,
-        // null move pruning, reverse futility pruning, check extension (by 1 ply, no need to limit number of extensions),
+        // null move pruning, reverse futility pruning, recapture extension (by 1 ply, no need to limit number of extensions: Extend when prev moved captured same square),
         // contempt factor based on time difference (eg timer.MillisecondsRemaining / timer.OpponentMillisecondsRemaining * 100 + 50)
         // Also, apparently LINQ is really slow for no good reason, so if we can spare the tokens we may want to use a manual for loop :(
         // Also, ideally we would have a pipeline where we compare our bot's move against stockfish and see if we blundered to spot potential bugs
@@ -100,7 +102,7 @@ public class MyBot : IChessBot
             + ", percent cutting (lower is better): " + (100.0 * betaCutoffCtr / allNodeCtr).ToString("0.0")
             + ", percent cutting for parents of inner nodes: " + (100.0 * parentOfInnerNodeBetaCutoffCtr / parentOfInnerNodeCtr).ToString("0.0")
             + ", TT occupancy in percent: " + (100.0 * numTTEntries / transpositionTable.Length).ToString("0.0")
-            + ", TT collisions: " + numTTCollisions + ", num TT writes: " + (numTTEntries + numTTCollisions));
+            + ", TT collisions: " + numTTCollisions + ", num transpositions: " + numTTCollisions + ", num TT writes: " + (numTTEntries + numTTCollisions));
         Console.WriteLine();
         allNodeCtr = 0;
         nonQuiescentNodeCtr = 0;
@@ -126,8 +128,6 @@ public class MyBot : IChessBot
             return -32_000 + ply; // being checkmated later is better (as is checkmating earlier)
         if (b.IsDraw())
             return 0; // TODO: Use timer.OpponentMillisecondsRemaining()?
-
-        //if (stopThinking()) return 12345; // the value won't be used, to use a canary to detect bugs
 
         bool isRoot = ply == 0;
         int killerIdx = ply * 2;
@@ -173,7 +173,8 @@ public class MyBot : IChessBot
         foreach (var move in legalMoves)
         {
             b.MakeMove(move);
-            int score = -negamax(remainingDepth - 1, -beta, -alpha, ply + 1);
+            // check extension: extend depth by 1 (ie don't reduce by 1) for checks (this has no effect for the quiescent search)
+            int score = -negamax(remainingDepth - (b.IsInCheck() ? 0 : 1), -beta, -alpha, ply + 1);
             b.UndoMove(move);
 
             // testing this only in the Think function introduces too much variance into the time needed to calculate a move
@@ -202,6 +203,7 @@ public class MyBot : IChessBot
         if (!quiescent) // don't fold into actual !quiescent test because then we'd need {}, adding an extra token
         {
             if (transpositionTable[b.ZobristKey & 8_388_607].key == 0) ++numTTEntries;
+            else if (transpositionTable[b.ZobristKey & 8_388_607].key == b.ZobristKey) ++numTranspositions;
             else ++numTTCollisions;
         }
 #endif
