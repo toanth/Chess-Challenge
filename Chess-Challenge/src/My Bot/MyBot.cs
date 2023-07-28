@@ -8,11 +8,12 @@ using ChessChallenge.API;
 /// - hand crafted evaluation function (to be improved!)
 /// - transposition table
 /// - iterative deepening
-/// - move reordering (TT and MVV/LVA)
+/// - move ordering (TT and MVV/LVA)
 /// - quiescent search
 /// - delta pruning
 /// - killer heuristic
 /// - check extension
+/// - "time-based contempt"
 /// </summary>
 public class MyBot : IChessBot
 {
@@ -81,7 +82,7 @@ public class MyBot : IChessBot
         var moves = board.GetLegalMoves();
         // iterative deepening using the tranposition table for move ordering; without the bound depth may
         // exceed 256 in case of forced checkmates, but that would overflow the TT entry and could potentially create problems
-        for (int depth = 1; depth < 50 /*&& !stopThinking()*/; ++depth) // starting with depth 0 wouldn't only be useless but also incorrect due to assumptions in negamax
+        for (int depth = 1; depth < 50 && !stopThinking(); ++depth) // starting with depth 0 wouldn't only be useless but also incorrect due to assumptions in negamax
 #if DEBUG
         { // uncomment `&& !stopThinking()` for slightly more readable debug output
             int score = negamax(depth, -30_000, 30_000, 0);
@@ -127,7 +128,10 @@ public class MyBot : IChessBot
         if (b.IsInCheckmate()) // TODO: Avoid (indirectly) calling GetLegalMoves in leafs, which is very slow apparently
             return -32_000 + ply; // being checkmated later is better (as is checkmating earlier)
         if (b.IsDraw())
-            return 0; // TODO: Use timer.OpponentMillisecondsRemaining()?
+            // time-based contempt(tm): if we have more time than our opponent, try to cause timeouts.
+            // This probably isn't the best way to calculate the contempt factor but it's relatively token efficient.
+            return (timer.MillisecondsRemaining - timer.OpponentMillisecondsRemaining) * (ply % 2 * 200 - 100) / timer.GameStartTimeMilliseconds;
+            //return 0;
 
         bool isRoot = ply == 0;
         int killerIdx = ply * 2;
