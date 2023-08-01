@@ -19,6 +19,7 @@ public class MyBot : IChessBot
 {
     Board b;
 
+    // TODO: Save tokens in the following members
     // piece values from PeSTO, see https://www.chessprogramming.org/PeSTO%27s_Evaluation_Function
     private int[] mgPieceValues = { 0, 82, 337, 365, 477, 1025, 0 };
     private int[] egPieceValues = { 0, 94, 281, 297, 512, 936, 0 };
@@ -144,12 +145,14 @@ public class MyBot : IChessBot
 
     public Move Think(Board board, Timer theTimer)
     {
-        // Ideas to try out: Better positional eval (based on piece square tables), removing both b.IsDraw() and b.IsInCheckmate() from the leaf code path to avoid
-        // calling GetLegalMoves(), updating a materialDif variable instead of recalculating that from scratch in every eval() call,
+        // Ideas to try out: Better positional eval (with better compressed psqts, passed pawns bit masks from Bits.cs, ...),
+        // removing both b.IsDraw() and b.IsInCheckmate() from the leaf code path to avoid calling GetLegalMoves(),
+        // updating a materialDif variable instead of recalculating that from scratch in every eval() call,
         // null move pruning, reverse futility pruning, recapture extension (by 1 ply, no need to limit number of extensions: Extend when prev moved captured same square),
         // depth replacement strategy for the TT (maybe by adding board.PlyCount (which is the actual position's ply count) so older entries get replaced),
         // using a simple form of cuckoo hashing for the TT where we take the lowest or highest bits of the zobrist key as index, maybe combined with
         // different replacement strategies (depth vs always overwrite) for both
+        // Also, the NPS metric is really low. Since almost all nodes are due to quiescent search (as it should), that's where the optimization potential lies.
         // Also, apparently LINQ is really slow for no good reason, so if we can spare the tokens we may want to use a manual for loop :(
         // Also, ideally we would have something like a pipeline where we compare our bot's move against stockfish and see if we blundered to spot potential bugs
         b = board;
@@ -175,12 +178,14 @@ public class MyBot : IChessBot
             // TODO: PVS?
             negamax(depth, -30_000, 30_000, 0);
 #endif
+
 #if DEBUG
         Console.WriteLine("All nodes: " + allNodeCtr + ", non quiescent: " + nonQuiescentNodeCtr + ", beta cutoff: " + betaCutoffCtr
             + ", percent cutting (higher is better): " + (100.0 * betaCutoffCtr / allNodeCtr).ToString("0.0")
             + ", percent cutting for parents of inner nodes: " + (100.0 * parentOfInnerNodeBetaCutoffCtr / parentOfInnerNodeCtr).ToString("0.0")
             + ", TT occupancy in percent: " + (100.0 * numTTEntries / transpositionTable.Length).ToString("0.0")
             + ", TT collisions: " + numTTCollisions + ", num transpositions: " + numTranspositions + ", num TT writes: " + numTTWrites);
+        Console.WriteLine("NPS: {0}k", (allNodeCtr / (double)timer.MillisecondsElapsedThisTurn).ToString("0.0"));
         Console.WriteLine("PV: ");
         printPv(8);
         Console.WriteLine();
@@ -193,6 +198,7 @@ public class MyBot : IChessBot
         numTranspositions = 0;
         numTTWrites = 0;
 #endif
+
         return bestRootMove;
     }
 
@@ -201,12 +207,12 @@ public class MyBot : IChessBot
     // also sets bestRootMove if ply is zero (assuming remainingDepth > 0 and at least one legal move)
     // searched depth may be larger than minRemainingDepth due to move extensions and quiescent search
     // This function can deal with fail soft values from fail high scenarios but not from fail low ones.
-    int negamax(int minRemainingDepth, int alpha, int beta, int ply) // TODO: store remainingDepth and ply, maybe alpha and beta, as class members to save tokens
+    int negamax(int remainingDepth, int alpha, int beta, int ply) // TODO: store remainingDepth and ply, maybe alpha and beta, as class members to save tokens
     {
 #if DEBUG
         ++allNodeCtr;
-        if (minRemainingDepth > 0) ++nonQuiescentNodeCtr;
-        if (minRemainingDepth > 1) ++parentOfInnerNodeCtr;
+        if (remainingDepth > 0) ++nonQuiescentNodeCtr;
+        if (remainingDepth > 1) ++parentOfInnerNodeCtr;
 #endif
 
         if (b.IsInCheckmate()) // TODO: Avoid (indirectly) calling GetLegalMoves in leafs, which is very slow apparently
@@ -220,7 +226,7 @@ public class MyBot : IChessBot
 
         bool isRoot = ply == 0;
         int killerIdx = ply * 2;
-        bool quiescent = minRemainingDepth <= 0;
+        bool quiescent = remainingDepth <= 0;
         var legalMoves = b.GetLegalMoves(quiescent).OrderByDescending(move =>
             // order promotions and captures first (sorted by the value of the captured piece and then the captured, aka MVV/LVA),
             // then killer moves, then normal ("quiet" non-killer) moves
@@ -243,19 +249,14 @@ public class MyBot : IChessBot
             if (bestScore + mgPieceValues[legalMoves.Select(move => (int)move.CapturePieceType).Max()] + 300 < alpha) return alpha;
             alpha = Math.Max(alpha, bestScore);
         }
-        else
+        else // TODO: Also do a table lookup during quiescent search?
         {
             var lookupVal = transpositionTable[b.ZobristKey & 8_388_607];
             // reorder moves: First, we try the entry from the transposition table, then captures, then the rest
             if (lookupVal.key == b.ZobristKey)
                 // TODO: There's some token saving potential here
-                if (lookupVal.depth >= minRemainingDepth && !isRoot // test for isRoot to make sure bestRootMove gets set
+                if (lookupVal.depth >= remainingDepth && !isRoot // test for isRoot to make sure bestRootMove gets set
                     && (lookupVal.type == 0 || lookupVal.type < 0 && lookupVal.score <= alpha || lookupVal.type > 0 && lookupVal.score >= beta))
-                    // TODO: Why is it necessary to use Math.Max? Valus that are lower than alpha should cause beta cutoffs in the parent just like alpha,
-                    // and the function should handle the fail soft fail high behavior of the parent. Maybe it doesn't actually?
-                    //return Math.Max(alpha, lookupVal.score); // TODO: Returning a value less than alpha shouldn't lead to bugs
-                    // The problem might be that fail soft scores retured like this are sometimes asumed to be exact by an ancestor, in which case
-                    // a wrong score is written to the ancestor's tt entry
                     return lookupVal.score;
                 else // search the most promising move (as determined by previous searches) first, which creates great alpha beta bounds
                     legalMoves = legalMoves.OrderByDescending(move => move == lookupVal.bestMove); // stable sorting, also works in case of a zobrist hash collision
@@ -269,7 +270,7 @@ public class MyBot : IChessBot
             b.MakeMove(move);
             // check extension: extend depth by 1 (ie don't reduce by 1) for checks -- this has no effect for the quiescent search
             // However, this causes subsequent TT entries to have the same depth as their ancestors, which seems like it might lead to bugs
-            int score = -negamax(minRemainingDepth - (b.IsInCheck() ? 0 : 1), -beta, -alpha, ply + 1);
+            int score = -negamax(remainingDepth - (b.IsInCheck() ? 0 : 1), -beta, -alpha, ply + 1);
             b.UndoMove(move);
 
             // testing this only in the Think function introduces too much variance into the time needed to calculate a move
@@ -284,7 +285,7 @@ public class MyBot : IChessBot
                 {
 #if DEBUG
                     ++betaCutoffCtr;
-                    if (minRemainingDepth > 1) ++parentOfInnerNodeBetaCutoffCtr;
+                    if (remainingDepth > 1) ++parentOfInnerNodeBetaCutoffCtr;
 #endif
                     if (!move.IsCapture)
                     {
@@ -308,10 +309,10 @@ public class MyBot : IChessBot
             // always overwrite on hash table collisions (pure hash collisions should be pretty rare, but hash table collision frequent once the table is full)
             // this removes old entries that we don't care about any more at the cost of potentially throwing out useful high-depth results in favor of much
             // more frequent low-depth results, but doesn't use too many tokens
-            // A problem of this approach is that the more nodes it searches (for example, on longer time controls), the less likely it is that useful hihg-depth
+            // A problem of this approach is that the more nodes it searches (for example, on longer time controls), the less likely it is that useful high-depth
             // positions remain in the table, althoug it seems to work fine for usual 1 minute games
             transpositionTable[b.ZobristKey & 8_388_607]
-                = new(b.ZobristKey, localBestMove, (short)bestScore, (byte)minRemainingDepth, (sbyte)(bestScore <= originalAlpha ? -1 : bestScore >= beta ? 1 : 0));
+                = new(b.ZobristKey, localBestMove, (short)bestScore, (byte)remainingDepth, (sbyte)(bestScore <= originalAlpha ? -1 : bestScore >= beta ? 1 : 0));
 
         if (isRoot) bestRootMove = localBestMove;
         return bestScore;
@@ -344,32 +345,32 @@ public class MyBot : IChessBot
 
         return (mg * phase + eg * (24 - phase)) / 24 * (b.IsWhiteToMove ? 1 : -1);
     }
-//}
-//    int eval()
-//    {
-//        return evalPlayer(b.IsWhiteToMove) - evalPlayer(!b.IsWhiteToMove);
-//    }
+    //}
+    //    int eval()
+    //    {
+    //        return evalPlayer(b.IsWhiteToMove) - evalPlayer(!b.IsWhiteToMove);
+    //    }
 
 
-//    int evalPlayer(bool color)
-//    {
-//        int material = b.GetAllPieceLists().Select(pieceList =>
-//                pieceList.Count * pieceValues[(int)pieceList.TypeOfPieceInList] * (pieceList.IsWhitePieceList == color ? 1 : 0)).Sum();
+    //    int evalPlayer(bool color)
+    //    {
+    //        int material = b.GetAllPieceLists().Select(pieceList =>
+    //                pieceList.Count * pieceValues[(int)pieceList.TypeOfPieceInList] * (pieceList.IsWhitePieceList == color ? 1 : 0)).Sum();
 
-//        int position = Math.Abs(b.GetKingSquare(color).Rank - 4) * (material - 2000) / 100 // total material is 9310, so go to the center in the endgame
-//            + b.GetPieceList(PieceType.Knight, color).Select(
-//                knight => BitboardHelper.GetNumberOfSetBits(BitboardHelper.GetKnightAttacks(knight.Square))).Sum() // how well are knights placed?
-//            + b.GetPieceList(PieceType.Pawn, color).Select(pawn => Math.Abs((color ? 7 : 0) - pawn.Square.Rank)).Sum() // advancing pawns is good
-//                                                                                                                       // controlling the center is good, as is having pieces slightly forward
-//            + BitboardHelper.GetNumberOfSetBits(color ? b.WhitePiecesBitboard & 0x003c_3c3c_3c3c_0000 : b.BlackPiecesBitboard & 0x0000_3c3c_3c3c_3c00);
+    //        int position = Math.Abs(b.GetKingSquare(color).Rank - 4) * (material - 2000) / 100 // total material is 9310, so go to the center in the endgame
+    //            + b.GetPieceList(PieceType.Knight, color).Select(
+    //                knight => BitboardHelper.GetNumberOfSetBits(BitboardHelper.GetKnightAttacks(knight.Square))).Sum() // how well are knights placed?
+    //            + b.GetPieceList(PieceType.Pawn, color).Select(pawn => Math.Abs((color ? 7 : 0) - pawn.Square.Rank)).Sum() // advancing pawns is good
+    //                                                                                                                       // controlling the center is good, as is having pieces slightly forward
+    //            + BitboardHelper.GetNumberOfSetBits(color ? b.WhitePiecesBitboard & 0x003c_3c3c_3c3c_0000 : b.BlackPiecesBitboard & 0x0000_3c3c_3c3c_3c00);
 
-//        for (int slidingPiece = 3; slidingPiece <= 5; ++slidingPiece)
-//        {
-//            position += b.GetPieceList((PieceType)slidingPiece, color).Select(piece => // how well are sliding pieces placed?
-//                BitboardHelper.GetNumberOfSetBits(BitboardHelper.GetSliderAttacks((PieceType)slidingPiece, piece.Square, b))).Sum();
-//        }
+    //        for (int slidingPiece = 3; slidingPiece <= 5; ++slidingPiece)
+    //        {
+    //            position += b.GetPieceList((PieceType)slidingPiece, color).Select(piece => // how well are sliding pieces placed?
+    //                BitboardHelper.GetNumberOfSetBits(BitboardHelper.GetSliderAttacks((PieceType)slidingPiece, piece.Square, b))).Sum();
+    //        }
 
-//        // choosing custom factors (including for the different summmands of `position`) may improve this evaluation, but this already seems relatively decent
-//        return material + position;
-//    }
+    //        // choosing custom factors (including for the different summmands of `position`) may improve this evaluation, but this already seems relatively decent
+    //        return material + position;
+    //    }
 }
