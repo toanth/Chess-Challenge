@@ -34,6 +34,8 @@ namespace ChessChallenge.Application
             UCIBot uci = new UCIBot(bot, player);
             uci.Run();
         }
+
+
         public static void Main(string[] args)
         {
             if (args.Length == 1 && args[0].Contains("cutechess"))
@@ -58,8 +60,8 @@ namespace ChessChallenge.Application
                 StartUCI(args);
                 return;
             }
-
             Console.WriteLine("Starting up in GUI mode...");
+
             Vector2 loadedWindowSize = GetSavedWindowSize();
             int screenWidth = (int)loadedWindowSize.X;
             int screenHeight = (int)loadedWindowSize.Y;

@@ -6,12 +6,12 @@ using System.Linq;
 
 namespace ChessChallenge.Example
 {
-    // A simple bot that can spot mate in one, and always captures the most valuable piece it can.
-    // Plays randomly otherwise.
+
     public class EvilBot : IChessBot
     {
         Board b;
 
+        // TODO: Save tokens in the following members
         // piece values from PeSTO, see https://www.chessprogramming.org/PeSTO%27s_Evaluation_Function
         private int[] mgPieceValues = { 0, 82, 337, 365, 477, 1025, 0 };
         private int[] egPieceValues = { 0, 94, 281, 297, 512, 936, 0 };
@@ -51,43 +51,43 @@ namespace ChessChallenge.Example
 
         private Timer timer;
 
-#if DEBUG
-        int allNodeCtr;
-        int nonQuiescentNodeCtr;
-        int betaCutoffCtr;
-        // node where remainingDepth is at least 2, so move ordering actually matters
-        // (it also matters for quiescent nodes but it's difficult to count non-leaf quiescent nodes and they don't use the TT, would skew results)
-        int parentOfInnerNodeCtr;
-        int parentOfInnerNodeBetaCutoffCtr;
-        int numTTEntries;
-        int numTTCollisions;
-        int numTranspositions;
-        int numTTWrites;
+#if PRINT_DEBUG_INFO
+    int allNodeCtr;
+    int nonQuiescentNodeCtr;
+    int betaCutoffCtr;
+    // node where remainingDepth is at least 2, so move ordering actually matters
+    // (it also matters for quiescent nodes but it's difficult to count non-leaf quiescent nodes and they don't use the TT, would skew results)
+    int parentOfInnerNodeCtr;
+    int parentOfInnerNodeBetaCutoffCtr;
+    int numTTEntries;
+    int numTTCollisions;
+    int numTranspositions;
+    int numTTWrites;
 
-        void printPv(int depth)
+    void printPv(int depth)
+    {
+        if (depth <= 0) return;
+        var ttEntry = transpositionTable[b.ZobristKey & 8_388_607];
+        if (ttEntry.key != b.ZobristKey)
         {
-            if (depth <= 0) return;
-            var ttEntry = transpositionTable[b.ZobristKey & 8_388_607];
-            if (ttEntry.key != b.ZobristKey)
-            {
-                Console.WriteLine("Position not in TT!");
-                return;
-            }
-            var move = ttEntry.bestMove;
-            if (!b.GetLegalMoves().Contains(move))
-            {
-                Console.WriteLine("Zobrist hash collision detected!");
-                return;
-            }
-            Console.WriteLine(move.ToString() + ", score " + ttEntry.score + ", type " + ttEntry.type + ", depth " + ttEntry.depth);
-            b.MakeMove(move);
-            printPv(depth - 1);
-            b.UndoMove(move);
+            Console.WriteLine("Position not in TT!");
+            return;
         }
+        var move = ttEntry.bestMove;
+        if (!b.GetLegalMoves().Contains(move))
+        {
+            Console.WriteLine("Zobrist hash collision detected!");
+            return;
+        }
+        Console.WriteLine(move.ToString() + ", score " + ttEntry.score + ", type " + ttEntry.type + ", depth " + ttEntry.depth);
+        b.MakeMove(move);
+        printPv(depth - 1);
+        b.UndoMove(move);
+    }
 #endif
 
 
-        public EvilBot()
+        public MyBot()
         {
 
             //int[] keys = { 818678418, 1518193683, 853646557, 1974889315, 803886296, 72966797, 131403433, 524505200, 503414742, 681221578, 513073202, 1743467558, 1239467126, 759530065, 1256925633, 1981081134, 707710911, 2066713110, 1964686058, 157704450, 565536064, 871112763, 173715671, 2089751297, 1496645539, 676347245, 1768694043, 1417293429, 1011776320, 1091733525, 918723704, 1098219947, 1318483967, 1635276141, 1975081928, 41895592, 210178050, 994349517, 489141255, 1391691710, 1370732519, 950365873, 1679204005, 1462173243, 1023928210, 5496954, 410169044, 1143099761, 313025143, 1882764755, 144513617, 769099335, 1961145913, 1866822597, 33906651, 709144438, 1883402523, 2018922608, 334854763, 1244841393, 1530327245, 890709805, 634621730, 1167383653, 913607742, 1851286064, 1103134366, 1844080860, 863422651, 1122845593, 60498607, 1993982241, 1623384738, 487468143, 371611483, 1681166310, 1434895717, 2062765470, 151937723, 506694336, 1085074728, 1489573672, 416247400, 1027984690, 26059579, 810353360, 1269967055, 1598221028, 1605696600, 361889479, 1812544739, 1310669162, 92596376, 2015201341, 323404709, 496158072, 1937512883, 1496454401, 1099531384, 270606563, 1466007785, 1928972024, 1173625527, 1689703069, 244780414, 1184766800, 594572308, 29362321, 2089950422, 911576112, 1343017958, 2135434833, 965163523, 2129829967, 678872729, 1077774697, 446094296, 1413875742, 554969872, 439209467, 1999187163, 354217948, 863122411, 1194560064, 1305438175, 2058751853, 1774892936, 2049196849 };
@@ -137,55 +137,61 @@ namespace ChessChallenge.Example
 
         public Move Think(Board board, Timer theTimer)
         {
-            // Ideas to try out: Better positional eval (based on piece square tables), removing both b.IsDraw() and b.IsInCheckmate() from the leaf code path to avoid
-            // calling GetLegalMoves(), updating a materialDif variable instead of recalculating that from scratch in every eval() call,
+            // Ideas to try out: Better positional eval (with better compressed psqts, passed pawns bit masks from Bits.cs, ...),
+            // removing both b.IsDraw() and b.IsInCheckmate() from the leaf code path to avoid calling GetLegalMoves(),
+            // updating a materialDif variable instead of recalculating that from scratch in every eval() call,
             // null move pruning, reverse futility pruning, recapture extension (by 1 ply, no need to limit number of extensions: Extend when prev moved captured same square),
             // depth replacement strategy for the TT (maybe by adding board.PlyCount (which is the actual position's ply count) so older entries get replaced),
             // using a simple form of cuckoo hashing for the TT where we take the lowest or highest bits of the zobrist key as index, maybe combined with
             // different replacement strategies (depth vs always overwrite) for both
+            // Also, the NPS metric is really low. Since almost all nodes are due to quiescent search (as it should), that's where the optimization potential lies.
             // Also, apparently LINQ is really slow for no good reason, so if we can spare the tokens we may want to use a manual for loop :(
             // Also, ideally we would have something like a pipeline where we compare our bot's move against stockfish and see if we blundered to spot potential bugs
             b = board;
             timer = theTimer;
 
             var moves = board.GetLegalMoves();
-            // iterative deepening using the tranposition table for move ordering; without the bounded depth  the depth could exceed
+            // iterative deepening using the tranposition table for move ordering; without the bound on depth, it could exceed
             // 256 in case of forced checkmates, but that would overflow the TT entry and could potentially create problems
             for (int depth = 1; depth < 50 && !stopThinking(); ++depth) // starting with depth 0 wouldn't only be useless but also incorrect due to assumptions in negamax
-#if DEBUG
-            { // comment out `&& !stopThinking()` to save some tokens at the cost of slightly less readable debug output
-                int score = negamax(depth, -30_000, 30_000, 0);
+#if PRINT_DEBUG_INFO
+        { // comment out `&& !stopThinking()` to save some tokens at the cost of slightly less readable debug output
+            int score = negamax(depth, -30_000, 30_000, 0);
 
-                Console.WriteLine("Score: " + score + ", best move: " + bestRootMove.ToString());
-                var ttEntry = transpositionTable[board.ZobristKey & 8_388_607];
-                Console.WriteLine("Current TT entry: " + ttEntry.ToString());
-                // might fail if there is a zobrist hash collision (not just a table collision!) between the current position and a non-quiescent
-                // position reached during this position's eval, and the time is up. But that's very unlikely, so the assertion stays.
-                Debug.Assert(ttEntry.bestMove == bestRootMove || ttEntry.key != b.ZobristKey);
-                Debug.Assert(ttEntry.score != 12345); // the canary value from cancelled searches, would require +5 queens to be computed normally
-            }
+            Console.WriteLine("Score: " + score + ", best move: " + bestRootMove.ToString());
+            var ttEntry = transpositionTable[board.ZobristKey & 8_388_607];
+            Console.WriteLine("Current TT entry: " + ttEntry.ToString());
+            // might fail if there is a zobrist hash collision (not just a table collision!) between the current position and a non-quiescent
+            // position reached during this position's eval, and the time is up. But that's very unlikely, so the assertion stays.
+            Debug.Assert(ttEntry.bestMove == bestRootMove || ttEntry.key != b.ZobristKey);
+            Debug.Assert(ttEntry.score != 12345); // the canary value from cancelled searches, would require +5 queens to be computed normally
+        }
 #else
-            // TODO: PVS?
-            negamax(depth, -30_000, 30_000, 0);
+                // TODO: PVS?
+                negamax(depth, -30_000, 30_000, 0);
 #endif
-#if DEBUG
-            Console.WriteLine("All nodes: " + allNodeCtr + ", non quiescent: " + nonQuiescentNodeCtr + ", beta cutoff: " + betaCutoffCtr
-                + ", percent cutting (higher is better): " + (100.0 * betaCutoffCtr / allNodeCtr).ToString("0.0")
-                + ", percent cutting for parents of inner nodes: " + (100.0 * parentOfInnerNodeBetaCutoffCtr / parentOfInnerNodeCtr).ToString("0.0")
-                + ", TT occupancy in percent: " + (100.0 * numTTEntries / transpositionTable.Length).ToString("0.0")
-                + ", TT collisions: " + numTTCollisions + ", num transpositions: " + numTranspositions + ", num TT writes: " + numTTWrites);
-            Console.WriteLine("PV: ");
-            printPv(8);
-            Console.WriteLine();
-            allNodeCtr = 0;
-            nonQuiescentNodeCtr = 0;
-            betaCutoffCtr = 0;
-            parentOfInnerNodeCtr = 0;
-            parentOfInnerNodeBetaCutoffCtr = 0;
-            numTTCollisions = 0;
-            numTranspositions = 0;
-            numTTWrites = 0;
+
+#if PRINT_DEBUG_INFO
+        Console.WriteLine("All nodes: " + allNodeCtr + ", non quiescent: " + nonQuiescentNodeCtr + ", beta cutoff: " + betaCutoffCtr
+            + ", percent cutting (higher is better): " + (100.0 * betaCutoffCtr / allNodeCtr).ToString("0.0")
+            + ", percent cutting for parents of inner nodes: " + (100.0 * parentOfInnerNodeBetaCutoffCtr / parentOfInnerNodeCtr).ToString("0.0")
+            + ", TT occupancy in percent: " + (100.0 * numTTEntries / transpositionTable.Length).ToString("0.0")
+            + ", TT collisions: " + numTTCollisions + ", num transpositions: " + numTranspositions + ", num TT writes: " + numTTWrites);
+        Console.WriteLine("NPS: {0}k", (allNodeCtr / (double)timer.MillisecondsElapsedThisTurn).ToString("0.0"));
+        Console.WriteLine("Time:{0} of {1} ms, remaining {2}", timer.MillisecondsElapsedThisTurn, timer.GameStartTimeMilliseconds, timer.MillisecondsRemaining);
+        Console.WriteLine("PV: ");
+        printPv(8);
+        Console.WriteLine();
+        allNodeCtr = 0;
+        nonQuiescentNodeCtr = 0;
+        betaCutoffCtr = 0;
+        parentOfInnerNodeCtr = 0;
+        parentOfInnerNodeBetaCutoffCtr = 0;
+        numTTCollisions = 0;
+        numTranspositions = 0;
+        numTTWrites = 0;
 #endif
+
             return bestRootMove;
         }
 
@@ -194,12 +200,12 @@ namespace ChessChallenge.Example
         // also sets bestRootMove if ply is zero (assuming remainingDepth > 0 and at least one legal move)
         // searched depth may be larger than minRemainingDepth due to move extensions and quiescent search
         // This function can deal with fail soft values from fail high scenarios but not from fail low ones.
-        int negamax(int minRemainingDepth, int alpha, int beta, int ply) // TODO: store remainingDepth and ply, maybe alpha and beta, as class members to save tokens
+        int negamax(int remainingDepth, int alpha, int beta, int ply) // TODO: store remainingDepth and ply, maybe alpha and beta, as class members to save tokens
         {
-#if DEBUG
-            ++allNodeCtr;
-            if (minRemainingDepth > 0) ++nonQuiescentNodeCtr;
-            if (minRemainingDepth > 1) ++parentOfInnerNodeCtr;
+#if PRINT_DEBUG_INFO
+        ++allNodeCtr;
+        if (remainingDepth > 0) ++nonQuiescentNodeCtr;
+        if (remainingDepth > 1) ++parentOfInnerNodeCtr;
 #endif
 
             if (b.IsInCheckmate()) // TODO: Avoid (indirectly) calling GetLegalMoves in leafs, which is very slow apparently
@@ -207,12 +213,13 @@ namespace ChessChallenge.Example
             if (b.IsDraw())
                 // time-based contempt(tm): if we have more time than our opponent, try to cause timeouts.
                 // This really isn't the best way to calculate the contempt factor but it's relatively token efficient.
-                // TODO: Uncomment            return (timer.MillisecondsRemaining - timer.OpponentMillisecondsRemaining) * (ply % 2 * 200 - 100) / timer.GameStartTimeMilliseconds;
+                // Disabled for now because it doesn't seem to improve elo beyond the margin of doubt at this point, maybe a better implementation could?
+                // return (timer.MillisecondsRemaining - timer.OpponentMillisecondsRemaining) * (ply % 2 * 200 - 100) / timer.GameStartTimeMilliseconds;
                 return 0;
 
             bool isRoot = ply == 0;
             int killerIdx = ply * 2;
-            bool quiescent = minRemainingDepth <= 0;
+            bool quiescent = remainingDepth <= 0;
             var legalMoves = b.GetLegalMoves(quiescent).OrderByDescending(move =>
                 // order promotions and captures first (sorted by the value of the captured piece and then the captured, aka MVV/LVA),
                 // then killer moves, then normal ("quiet" non-killer) moves
@@ -235,19 +242,14 @@ namespace ChessChallenge.Example
                 if (bestScore + mgPieceValues[legalMoves.Select(move => (int)move.CapturePieceType).Max()] + 300 < alpha) return alpha;
                 alpha = Math.Max(alpha, bestScore);
             }
-            else
+            else // TODO: Also do a table lookup during quiescent search? Test performance and tokens
             {
                 var lookupVal = transpositionTable[b.ZobristKey & 8_388_607];
                 // reorder moves: First, we try the entry from the transposition table, then captures, then the rest
                 if (lookupVal.key == b.ZobristKey)
                     // TODO: There's some token saving potential here
-                    if (lookupVal.depth >= minRemainingDepth && !isRoot // test for isRoot to make sure bestRootMove gets set
+                    if (lookupVal.depth >= remainingDepth && !isRoot // test for isRoot to make sure bestRootMove gets set
                         && (lookupVal.type == 0 || lookupVal.type < 0 && lookupVal.score <= alpha || lookupVal.type > 0 && lookupVal.score >= beta))
-                        // TODO: Why is it necessary to use Math.Max? Valus that are lower than alpha should cause beta cutoffs in the parent just like alpha,
-                        // and the function should handle the fail soft fail high behavior of the parent. Maybe it doesn't actually?
-                        //return Math.Max(alpha, lookupVal.score); // TODO: Returning a value less than alpha shouldn't lead to bugs
-                        // The problem might be that fail soft scores retured like this are sometimes asumed to be exact by an ancestor, in which case
-                        // a wrong score is written to the ancestor's tt entry
                         return lookupVal.score;
                     else // search the most promising move (as determined by previous searches) first, which creates great alpha beta bounds
                         legalMoves = legalMoves.OrderByDescending(move => move == lookupVal.bestMove); // stable sorting, also works in case of a zobrist hash collision
@@ -261,7 +263,7 @@ namespace ChessChallenge.Example
                 b.MakeMove(move);
                 // check extension: extend depth by 1 (ie don't reduce by 1) for checks -- this has no effect for the quiescent search
                 // However, this causes subsequent TT entries to have the same depth as their ancestors, which seems like it might lead to bugs
-                int score = -negamax(minRemainingDepth - (b.IsInCheck() ? 0 : 1), -beta, -alpha, ply + 1);
+                int score = -negamax(remainingDepth - (b.IsInCheck() ? 0 : 1), -beta, -alpha, ply + 1);
                 b.UndoMove(move);
 
                 // testing this only in the Think function introduces too much variance into the time needed to calculate a move
@@ -274,10 +276,12 @@ namespace ChessChallenge.Example
                     alpha = Math.Max(alpha, score);
                     if (score >= beta)
                     {
-#if DEBUG
-                        ++betaCutoffCtr;
-                        if (minRemainingDepth > 1) ++parentOfInnerNodeBetaCutoffCtr;
+#if PRINT_DEBUG_INFO
+                    ++betaCutoffCtr;
+                    if (remainingDepth > 1) ++parentOfInnerNodeBetaCutoffCtr;
 #endif
+                        // TODO: This quiet move detection considers promotions to be quiet, but the mvvlva code doesn't.
+                        // Use this definition also for the move ordering code?
                         if (!move.IsCapture)
                         {
                             killerMoves[killerIdx + 1] = killerMoves[killerIdx];
@@ -287,23 +291,23 @@ namespace ChessChallenge.Example
                     }
                 }
             }
-#if DEBUG
-            if (!quiescent) // don't fold into actual !quiescent test because then we'd need {}, adding an extra token
-            {
-                ++numTTWrites;
-                if (transpositionTable[b.ZobristKey & 8_388_607].key == 0) ++numTTEntries; // this counter doesn't get reset every move
-                else if (transpositionTable[b.ZobristKey & 8_388_607].key == b.ZobristKey) ++numTranspositions;
-                else ++numTTCollisions;
-            }
+#if PRINT_DEBUG_INFO
+        if (!quiescent) // don't fold into actual !quiescent test because then we'd need {}, adding an extra token
+        {
+            ++numTTWrites;
+            if (transpositionTable[b.ZobristKey & 8_388_607].key == 0) ++numTTEntries; // this counter doesn't get reset every move
+            else if (transpositionTable[b.ZobristKey & 8_388_607].key == b.ZobristKey) ++numTranspositions;
+            else ++numTTCollisions;
+        }
 #endif
             if (!quiescent)
                 // always overwrite on hash table collisions (pure hash collisions should be pretty rare, but hash table collision frequent once the table is full)
                 // this removes old entries that we don't care about any more at the cost of potentially throwing out useful high-depth results in favor of much
                 // more frequent low-depth results, but doesn't use too many tokens
-                // A problem of this approach is that the more nodes it searches (for example, on longer time controls), the less likely it is that useful hihg-depth
+                // A problem of this approach is that the more nodes it searches (for example, on longer time controls), the less likely it is that useful high-depth
                 // positions remain in the table, althoug it seems to work fine for usual 1 minute games
                 transpositionTable[b.ZobristKey & 8_388_607]
-                    = new(b.ZobristKey, localBestMove, (short)bestScore, (byte)minRemainingDepth, (sbyte)(bestScore <= originalAlpha ? -1 : bestScore >= beta ? 1 : 0));
+                    = new(b.ZobristKey, localBestMove, (short)bestScore, (byte)remainingDepth, (sbyte)(bestScore <= originalAlpha ? -1 : bestScore >= beta ? 1 : 0));
 
             if (isRoot) bestRootMove = localBestMove;
             return bestScore;
@@ -337,7 +341,7 @@ namespace ChessChallenge.Example
             return (mg * phase + eg * (24 - phase)) / 24 * (b.IsWhiteToMove ? 1 : -1);
         }
 
-        // JW's example bot, aka tier 2 bot
+        ////JW's example bot, aka tier 2 bot
         //Move bestmoveRoot = Move.NullMove;
 
         //// https://www.chessprogramming.org/PeSTO%27s_Evaluation_Function

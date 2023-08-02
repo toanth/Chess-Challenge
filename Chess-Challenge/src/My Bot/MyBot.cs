@@ -1,4 +1,9 @@
-﻿using System;
+﻿#if DEBUG
+// comment this to stop printing debug/benchmarking information
+#define PRINT_DEBUG_INFO
+#endif
+
+using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Linq;
@@ -59,7 +64,7 @@ public class MyBot : IChessBot
 
     private Timer timer;
 
-#if DEBUG
+#if PRINT_DEBUG_INFO
     int allNodeCtr;
     int nonQuiescentNodeCtr;
     int betaCutoffCtr;
@@ -98,41 +103,15 @@ public class MyBot : IChessBot
     public MyBot()
     {
 
-        //int[] keys = { 818678418, 1518193683, 853646557, 1974889315, 803886296, 72966797, 131403433, 524505200, 503414742, 681221578, 513073202, 1743467558, 1239467126, 759530065, 1256925633, 1981081134, 707710911, 2066713110, 1964686058, 157704450, 565536064, 871112763, 173715671, 2089751297, 1496645539, 676347245, 1768694043, 1417293429, 1011776320, 1091733525, 918723704, 1098219947, 1318483967, 1635276141, 1975081928, 41895592, 210178050, 994349517, 489141255, 1391691710, 1370732519, 950365873, 1679204005, 1462173243, 1023928210, 5496954, 410169044, 1143099761, 313025143, 1882764755, 144513617, 769099335, 1961145913, 1866822597, 33906651, 709144438, 1883402523, 2018922608, 334854763, 1244841393, 1530327245, 890709805, 634621730, 1167383653, 913607742, 1851286064, 1103134366, 1844080860, 863422651, 1122845593, 60498607, 1993982241, 1623384738, 487468143, 371611483, 1681166310, 1434895717, 2062765470, 151937723, 506694336, 1085074728, 1489573672, 416247400, 1027984690, 26059579, 810353360, 1269967055, 1598221028, 1605696600, 361889479, 1812544739, 1310669162, 92596376, 2015201341, 323404709, 496158072, 1937512883, 1496454401, 1099531384, 270606563, 1466007785, 1928972024, 1173625527, 1689703069, 244780414, 1184766800, 594572308, 29362321, 2089950422, 911576112, 1343017958, 2135434833, 965163523, 2129829967, 678872729, 1077774697, 446094296, 1413875742, 554969872, 439209467, 1999187163, 354217948, 863122411, 1194560064, 1305438175, 2058751853, 1774892936, 2049196849 };
-
-        //List<ulong> res;
-        //for (int i = 0; i < keys.Length; i += 2)
-        //{
-        //    ulong key = (((ulong)keys[i + 1]) << 32) + (ulong)keys[i];
-        //    Console.Write(key + ", ");
-        //}
-        //Console.WriteLine("========");
-
-        //Random test = new((int)(compressedPesto[(1 / 2)] >> (1 % 2 * 32)));
-        //for (int i = 0; i < 6; ++i)
-        //{
-        //    Console.WriteLine(test.Next(-167, 187));
-        //}
         // Uncompress the rng-compressed pesto values. Big thanks to https://github.com/Selenaut for doing all the hard work.
         for (int keyIdx = 0; keyIdx < 128; ++keyIdx)
         {
             Random rng = new((int)(compressedPesto[keyIdx / 2] >> (keyIdx % 2 * 32)));
             for (int i = 0; i < 6; i++)
             { // TODO: Concatenate seeds differently to make this formula use fewer tokens
-                //int val = rng.Next(-167, 187);
-                //int idx = keyIdx / 2 + keyIdx % 2 * 384 + 64 * i;
-                //pesto[idx] = val;
-                //Console.WriteLine(val + ", " + idx);
                 pesto[keyIdx / 2 + keyIdx % 2 * 384 + 64 * i] = rng.Next(-167, 187);
             }
         }
-        //for (int i = 0; i < 12; ++i) {
-        //    for (int e = 0; e < 64; e++)
-        //    {
-        //        Console.Write(pesto[e + 64 * i] + " ");
-        //    }
-        //    Console.WriteLine();
-        //}
     }
 
     bool stopThinking() // TODO: Can we save tokens by using properties instead of methods?
@@ -159,10 +138,10 @@ public class MyBot : IChessBot
         timer = theTimer;
 
         var moves = board.GetLegalMoves();
-        // iterative deepening using the tranposition table for move ordering; without the bounded depth  the depth could exceed
+        // iterative deepening using the tranposition table for move ordering; without the bound on depth, it could exceed
         // 256 in case of forced checkmates, but that would overflow the TT entry and could potentially create problems
         for (int depth = 1; depth < 50 && !stopThinking(); ++depth) // starting with depth 0 wouldn't only be useless but also incorrect due to assumptions in negamax
-#if DEBUG
+#if PRINT_DEBUG_INFO
         { // comment out `&& !stopThinking()` to save some tokens at the cost of slightly less readable debug output
             int score = negamax(depth, -30_000, 30_000, 0);
 
@@ -179,13 +158,14 @@ public class MyBot : IChessBot
             negamax(depth, -30_000, 30_000, 0);
 #endif
 
-#if DEBUG
+#if PRINT_DEBUG_INFO
         Console.WriteLine("All nodes: " + allNodeCtr + ", non quiescent: " + nonQuiescentNodeCtr + ", beta cutoff: " + betaCutoffCtr
             + ", percent cutting (higher is better): " + (100.0 * betaCutoffCtr / allNodeCtr).ToString("0.0")
             + ", percent cutting for parents of inner nodes: " + (100.0 * parentOfInnerNodeBetaCutoffCtr / parentOfInnerNodeCtr).ToString("0.0")
             + ", TT occupancy in percent: " + (100.0 * numTTEntries / transpositionTable.Length).ToString("0.0")
             + ", TT collisions: " + numTTCollisions + ", num transpositions: " + numTranspositions + ", num TT writes: " + numTTWrites);
         Console.WriteLine("NPS: {0}k", (allNodeCtr / (double)timer.MillisecondsElapsedThisTurn).ToString("0.0"));
+        Console.WriteLine("Time:{0} of {1} ms, remaining {2}", timer.MillisecondsElapsedThisTurn, timer.GameStartTimeMilliseconds, timer.MillisecondsRemaining);
         Console.WriteLine("PV: ");
         printPv(8);
         Console.WriteLine();
@@ -209,7 +189,7 @@ public class MyBot : IChessBot
     // This function can deal with fail soft values from fail high scenarios but not from fail low ones.
     int negamax(int remainingDepth, int alpha, int beta, int ply) // TODO: store remainingDepth and ply, maybe alpha and beta, as class members to save tokens
     {
-#if DEBUG
+#if PRINT_DEBUG_INFO
         ++allNodeCtr;
         if (remainingDepth > 0) ++nonQuiescentNodeCtr;
         if (remainingDepth > 1) ++parentOfInnerNodeCtr;
@@ -249,7 +229,7 @@ public class MyBot : IChessBot
             if (bestScore + mgPieceValues[legalMoves.Select(move => (int)move.CapturePieceType).Max()] + 300 < alpha) return alpha;
             alpha = Math.Max(alpha, bestScore);
         }
-        else // TODO: Also do a table lookup during quiescent search?
+        else // TODO: Also do a table lookup during quiescent search? Test performance and tokens
         {
             var lookupVal = transpositionTable[b.ZobristKey & 8_388_607];
             // reorder moves: First, we try the entry from the transposition table, then captures, then the rest
@@ -283,11 +263,13 @@ public class MyBot : IChessBot
                 alpha = Math.Max(alpha, score);
                 if (score >= beta)
                 {
-#if DEBUG
+#if PRINT_DEBUG_INFO
                     ++betaCutoffCtr;
                     if (remainingDepth > 1) ++parentOfInnerNodeBetaCutoffCtr;
 #endif
-                    if (!move.IsCapture)
+                    // TODO: This quiet move detection considers promotions to be quiet, but the mvvlva code doesn't.
+                    // Use this definition also for the move ordering code?
+                    if (!move.IsCapture) 
                     {
                         killerMoves[killerIdx + 1] = killerMoves[killerIdx];
                         killerMoves[killerIdx] = move;
@@ -296,7 +278,7 @@ public class MyBot : IChessBot
                 }
             }
         }
-#if DEBUG
+#if PRINT_DEBUG_INFO
         if (!quiescent) // don't fold into actual !quiescent test because then we'd need {}, adding an extra token
         {
             ++numTTWrites;
@@ -345,32 +327,4 @@ public class MyBot : IChessBot
 
         return (mg * phase + eg * (24 - phase)) / 24 * (b.IsWhiteToMove ? 1 : -1);
     }
-    //}
-    //    int eval()
-    //    {
-    //        return evalPlayer(b.IsWhiteToMove) - evalPlayer(!b.IsWhiteToMove);
-    //    }
-
-
-    //    int evalPlayer(bool color)
-    //    {
-    //        int material = b.GetAllPieceLists().Select(pieceList =>
-    //                pieceList.Count * pieceValues[(int)pieceList.TypeOfPieceInList] * (pieceList.IsWhitePieceList == color ? 1 : 0)).Sum();
-
-    //        int position = Math.Abs(b.GetKingSquare(color).Rank - 4) * (material - 2000) / 100 // total material is 9310, so go to the center in the endgame
-    //            + b.GetPieceList(PieceType.Knight, color).Select(
-    //                knight => BitboardHelper.GetNumberOfSetBits(BitboardHelper.GetKnightAttacks(knight.Square))).Sum() // how well are knights placed?
-    //            + b.GetPieceList(PieceType.Pawn, color).Select(pawn => Math.Abs((color ? 7 : 0) - pawn.Square.Rank)).Sum() // advancing pawns is good
-    //                                                                                                                       // controlling the center is good, as is having pieces slightly forward
-    //            + BitboardHelper.GetNumberOfSetBits(color ? b.WhitePiecesBitboard & 0x003c_3c3c_3c3c_0000 : b.BlackPiecesBitboard & 0x0000_3c3c_3c3c_3c00);
-
-    //        for (int slidingPiece = 3; slidingPiece <= 5; ++slidingPiece)
-    //        {
-    //            position += b.GetPieceList((PieceType)slidingPiece, color).Select(piece => // how well are sliding pieces placed?
-    //                BitboardHelper.GetNumberOfSetBits(BitboardHelper.GetSliderAttacks((PieceType)slidingPiece, piece.Square, b))).Sum();
-    //        }
-
-    //        // choosing custom factors (including for the different summmands of `position`) may improve this evaluation, but this already seems relatively decent
-    //        return material + position;
-    //    }
 }

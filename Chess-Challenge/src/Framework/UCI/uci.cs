@@ -83,7 +83,7 @@ namespace ChessChallenge.UCI
                 wtime = btime;
                 btime = tmp;
             }
-            Timer timer = new Timer(wtime, btime, 0);
+            Timer timer = new Timer(wtime, btime, wtime);
             API.Move move = bot.Think(apiBoard, timer);
             Console.WriteLine($"bestmove {move.ToString().Substring(7, move.ToString().Length - 8)}");
         }
@@ -100,7 +100,7 @@ namespace ChessChallenge.UCI
             {
                 case "uci":
                     Console.WriteLine("id name Chess Challenge");
-                    Console.WriteLine("id author toanth, AspectOfTheNoob, Sebastian Lague");
+                    Console.WriteLine("id author toanth, Sebastian Lague");
                     Console.WriteLine("uciok");
                     break;
                 case "ucinewgame":
