@@ -14,17 +14,20 @@ using ChessChallenge.API;
 /// - compressed PeSTO! (to be improved)
 /// - transposition table
 /// - iterative deepening
-/// - move ordering (TT and MVV/LVA)
+/// - move ordering:
+/// -- TT
+/// -- MVV/LVA
+/// -- killer heuristic
 /// - quiescent search
 /// - delta pruning
-/// - killer heuristic
 /// - check extension
+/// - null move pruning (disabled for the moment because it doesn't gain, though that might change with PVS)
 /// </summary>
 public class MyBot : IChessBot
 {
     Board b;
 
-    // TODO: Save tokens in the following members
+    // TODO: Save tokens in the following members by cmpressing piece values and by merging arrays (which is cursed but saves tokens)
     // piece values from PeSTO, see https://www.chessprogramming.org/PeSTO%27s_Evaluation_Function
     private int[] mgPieceValues = { 0, 82, 337, 365, 477, 1025, 0 };
     private int[] egPieceValues = { 0, 94, 281, 297, 512, 936, 0 };
@@ -56,13 +59,17 @@ public class MyBot : IChessBot
 
     // For each depth, store 2 killer moves: A killer move is a non-capturing move that caused a beta cutoff
     // (ie early return due to score >= beta)  in a previous node. This is then used for move ordering
-    private Move[] killerMoves = new Move[256]; // we're not searching more than 128 moves ahead, even with quiescent search
+    private Move[] killerMoves = new Move[1024]; // nmp increaes ply by 20 to prevent overwriting useful data, so accomodate for that
 
     // set by the toplevel call to negamax()
     // returning (Move, int) from negamax() would be prettier but use more tokens
     private Move bestRootMove;
 
     private Timer timer;
+
+    // they are class members so that we can access their value outside of evaluate(), although this 
+    // depends on evaluate being called first so that they are set correctly
+    private int mg, eg, phase;
 
 #if PRINT_DEBUG_INFO
     int allNodeCtr;
@@ -125,7 +132,7 @@ public class MyBot : IChessBot
     public Move Think(Board board, Timer theTimer)
     {
         // Ideas to try out: Better positional eval (with better compressed psqts, passed pawns bit masks from Bits.cs, ...),
-        // removing both b.IsDraw() and b.IsInCheckmate() from the leaf code path to avoid calling GetLegalMoves(),
+        // removing both b.IsDraw() and b.IsInCheckmate() from the leaf code path to avoid calling GetLegalMoves() (but first update to 1.18),
         // updating a materialDif variable instead of recalculating that from scratch in every eval() call,
         // null move pruning, reverse futility pruning, recapture extension (by 1 ply, no need to limit number of extensions: Extend when prev moved captured same square),
         // depth replacement strategy for the TT (maybe by adding board.PlyCount (which is the actual position's ply count) so older entries get replaced),
@@ -133,7 +140,6 @@ public class MyBot : IChessBot
         // different replacement strategies (depth vs always overwrite) for both
         // Also, the NPS metric is really low. Since almost all nodes are due to quiescent search (as it should), that's where the optimization potential lies.
         // Also, apparently LINQ is really slow for no good reason, so if we can spare the tokens we may want to use a manual for loop :(
-        // Also, ideally we would have something like a pipeline where we compare our bot's move against stockfish and see if we blundered to spot potential bugs
         b = board;
         timer = theTimer;
 
@@ -143,7 +149,7 @@ public class MyBot : IChessBot
         for (int depth = 1; depth < 50 && !stopThinking(); ++depth) // starting with depth 0 wouldn't only be useless but also incorrect due to assumptions in negamax
 #if PRINT_DEBUG_INFO
         { // comment out `&& !stopThinking()` to save some tokens at the cost of slightly less readable debug output
-            int score = negamax(depth, -30_000, 30_000, 0);
+            int score = negamax(depth, -30_000, 30_000, 0, false);
 
             Console.WriteLine("Score: " + score + ", best move: " + bestRootMove.ToString());
             var ttEntry = transpositionTable[board.ZobristKey & 8_388_607];
@@ -155,7 +161,7 @@ public class MyBot : IChessBot
         }
 #else
             // TODO: PVS?
-            negamax(depth, -30_000, 30_000, 0);
+            negamax(depth, -30_000, 30_000, 0, false);
 #endif
 
 #if PRINT_DEBUG_INFO
@@ -187,7 +193,7 @@ public class MyBot : IChessBot
     // also sets bestRootMove if ply is zero (assuming remainingDepth > 0 and at least one legal move)
     // searched depth may be larger than minRemainingDepth due to move extensions and quiescent search
     // This function can deal with fail soft values from fail high scenarios but not from fail low ones.
-    int negamax(int remainingDepth, int alpha, int beta, int ply) // TODO: store remainingDepth and ply, maybe alpha and beta, as class members to save tokens
+    int negamax(int remainingDepth, int alpha, int beta, int ply, bool allowNMP) // TODO: store remainingDepth and ply, maybe alpha and beta, as class members to save tokens
     {
 #if PRINT_DEBUG_INFO
         ++allNodeCtr;
@@ -204,6 +210,7 @@ public class MyBot : IChessBot
             // return (timer.MillisecondsRemaining - timer.OpponentMillisecondsRemaining) * (ply % 2 * 200 - 100) / timer.GameStartTimeMilliseconds;
             return 0;
 
+        // TODO: Implement PVS, which can be used to disable dangerous optimizations like rfp, lmr (obviously) and nmp in pv nodes.
         bool isRoot = ply == 0;
         int killerIdx = ply * 2;
         bool quiescent = remainingDepth <= 0;
@@ -219,15 +226,18 @@ public class MyBot : IChessBot
         int originalAlpha = alpha;
         if (quiescent)
         {
-            bestScore = eval();
+            // updating bestScore not only saves tokens compared to using a new standPat variable, it also increases playing strength by 100 elo compared to not
+            // updating bestScore. This is because the standPat score is often a more reliable estimate than forcibly taking a possible capture, so it should be
+            // returned if all captures fail low.
+            bestScore = eval(); // TODO: Instead of introducing new named variables, use an `int temp` member that can be used for these things to save tokens.
             if (bestScore >= beta) return bestScore;
             // delta pruning, a version of futility pruning: If the current position is hopeless, abort
             // technically, we should also check capturing promotions, but they are rare so we don't care
             // TODO: At some point in the future, test against this to see if the token saving potential is worth it
             //if (staticEval + pieceValues[(int)localBestMove.CapturePieceType] + 500 < alpha) return alpha;
             // The following is the "correct" way of doing it, but may not be stronger now (retest,also tune parameters)
-            if (bestScore + mgPieceValues[legalMoves.Select(move => (int)move.CapturePieceType).Max()] + 300 < alpha) return alpha;
-            alpha = Math.Max(alpha, bestScore);
+            if (bestScore + mgPieceValues[legalMoves.Select(move => (int)move.CapturePieceType).Max()] + 300 < alpha) return bestScore; // TODO: This only has a very small effect
+            alpha = Math.Max(alpha, bestScore); // TODO: If statement should use fewer tokens
         }
         else // TODO: Also do a table lookup during quiescent search? Test performance and tokens
         {
@@ -241,6 +251,18 @@ public class MyBot : IChessBot
                 else // search the most promising move (as determined by previous searches) first, which creates great alpha beta bounds
                     legalMoves = legalMoves.OrderByDescending(move => move == lookupVal.bestMove); // stable sorting, also works in case of a zobrist hash collision
         }
+        // nmp, TODO: tune R, actually make sure phase is correct instead of possibly from a sibling or parent (which shouldn't hurt much but is still incorrect)
+        //if (/*TODO: Not a pv node &&*/ remainingDepth > 3 && allowNMP && phase > 0 && b.TrySkipTurn())
+        //{
+        //    // if we have pvs, we can use pvs here as well (but for now it stays normal negamax)
+        //    // we can't reuse killerIdx cause C# basically captures by reference, so we need to create a new variable
+        //    // increase ply by 20 to prevent clashes with normal search for killer moves
+        //    int nmpScore = -negamax(remainingDepth - 3, -beta, -alpha, ply + 20, false);
+        //    b.UndoSkipTurn();
+        //    if (nmpScore > beta) return nmpScore;
+        //    alpha = Math.Max(alpha, nmpScore);
+        //    bestScore = Math.Max(bestScore, nmpScore); // TODO: Optimize tokens by folding into nmpScore declaration
+        //}
 
         // fail soft: Instead of only updating alpha, maintain an additional bestScore variable. This might be useful later on
         // but also means the TT entries can have lower upper bounds, potentially leading to a few more cuts
@@ -250,7 +272,7 @@ public class MyBot : IChessBot
             b.MakeMove(move);
             // check extension: extend depth by 1 (ie don't reduce by 1) for checks -- this has no effect for the quiescent search
             // However, this causes subsequent TT entries to have the same depth as their ancestors, which seems like it might lead to bugs
-            int score = -negamax(remainingDepth - (b.IsInCheck() ? 0 : 1), -beta, -alpha, ply + 1);
+            int score = -negamax(remainingDepth - (b.IsInCheck() ? 0 : 1), -beta, -alpha, ply + 1, true);
             b.UndoMove(move);
 
             // testing this only in the Think function introduces too much variance into the time needed to calculate a move
@@ -304,8 +326,7 @@ public class MyBot : IChessBot
     // for the time being, this is very closely based on JW's example bot (ie tier 2 bot)
     int eval()
     {
-        int mg = 0, eg = 0, phase = 0;
-
+        phase = mg = eg = 0;
         foreach (bool stm in new[] { true, false })
         {
             for (var p = PieceType.Pawn; p <= PieceType.King; p++)
