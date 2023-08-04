@@ -21,23 +21,42 @@ using ChessChallenge.API;
 /// - quiescent search
 /// - delta pruning
 /// - check extension
-/// - null move pruning (disabled for the moment because it doesn't gain, though that might change with PVS)
+/// Features whih don't seem to be gaining elo right now (fix & retest!):
+/// - principal variation search
+/// - late move reductions
+/// - null move pruning
 /// </summary>
 public class MyBot : IChessBot
 {
     Board b;
 
+    int[] piecePhase = { 0, 0, 1, 1, 2, 4, 0 };
+
+    #region rand_compression
     // TODO: Save tokens in the following members by cmpressing piece values and by merging arrays (which is cursed but saves tokens)
     // piece values from PeSTO, see https://www.chessprogramming.org/PeSTO%27s_Evaluation_Function
     private int[] mgPieceValues = { 0, 82, 337, 365, 477, 1025, 0 };
     private int[] egPieceValues = { 0, 94, 281, 297, 512, 936, 0 };
 
-    int[] piecePhase = { 0, 0, 1, 1, 2, 4, 0 };
-
     // Each value encodes two seeds for the C# default PRNG, causing it to approximate 6 PeSTO values per seed
     ulong[] compressedPesto = { 6520592218297469586, 8482085021998488797, 313390007612757208, 2252732680713342633, 2925824399342927830, 7488136143760056370, 3262156790743221366, 8508678682509519297, 8876465218372161471, 677335457148353258, 3741400828778734912, 8975413477562298583, 2904889299511345059, 6087228928159392027, 4688959786833574720, 4716818757098577016, 7023457546842568703, 179940199461641160, 4270698656518574082, 5977270381053457415, 4081790345140221927, 6279986261450464933, 23609238681544594, 4909576089970585300, 8086413049099477623, 3303256491344861777, 8017942003509933625, 3045752169384206299, 8671206576398430491, 5346553071976938091, 3825569484231864525, 5013874612154634018, 7951213101334170686, 7920266985982688926, 4822585101256149179, 8564088513960288943, 2093659733650236066, 7220554320958609243, 8859510234402964837, 2176235602340373179, 6397670207307705640, 4415160624754945640, 3480441179429774139, 6864307048309467343, 1554303478677175384, 5629281188478270691, 8655223854542940312, 2130982693209818021, 6427222714187782579, 1162246339267495032, 8284871759444934889, 7257219422479456951, 5088534659631353214, 126110209024226324, 3915189590944783574, 9171622771817239526, 9147550055270922755, 4629007076750182041, 6072550072943827928, 1886390297413561104, 1521354504315415771, 5130596408850789355, 8842271880519837663, 8801233451296143240 };
+
     // the aray of pesto values
     int[] pesto = new int[768];
+    #endregion
+
+    #region tier_2
+    //// JW's compression (which could probably be improved, but evens the playing field when comparing against tier 2 bot
+    //ulong[] psts = { 657614902731556116, 420894446315227099, 384592972471695068, 312245244820264086, 364876803783607569, 366006824779723922, 366006826859316500, 786039115310605588, 421220596516513823, 366011295806342421, 366006826859316436, 366006896669578452, 162218943720801556, 440575073001255824, 657087419459913430, 402634039558223453, 347425219986941203, 365698755348489557, 311382605788951956, 147850316371514514, 329107007234708689, 402598430990222677, 402611905376114006, 329415149680141460, 257053881053295759, 291134268204721362, 492947507967247313, 367159395376767958, 384021229732455700, 384307098409076181, 402035762391246293, 328847661003244824, 365712019230110867, 366002427738801364, 384307168185238804, 347996828560606484, 329692156834174227, 365439338182165780, 386018218798040211, 456959123538409047, 347157285952386452, 365711880701965780, 365997890021704981, 221896035722130452, 384289231362147538, 384307167128540502, 366006826859320596, 366006826876093716, 366002360093332756, 366006824694793492, 347992428333053139, 457508666683233428, 329723156783776785, 329401687190893908, 366002356855326100, 366288301819245844, 329978030930875600, 420621693221156179, 422042614449657239, 384602117564867863, 419505151144195476, 366274972473194070, 329406075454444949, 275354286769374224, 366855645423297932, 329991151972070674, 311105941360174354, 256772197720318995, 365993560693875923, 258219435335676691, 383730812414424149, 384601907111998612, 401758895947998613, 420612834953622999, 402607438610388375, 329978099633296596, 67159620133902 };
+
+
+    //int getPstVal(int psq)
+    //{
+    //    return (int)(((psts[psq / 10] >> (6 * (psq % 10))) & 63) - 20) * 8;
+    //}
+    //int[] pieceVal = { 0, 100, 310, 330, 500, 1000, 10000 };
+
+    #endregion
 
 
     // maps a zobrist hash of a position to its score, the search depth at which the score was evaluated,
@@ -106,7 +125,7 @@ public class MyBot : IChessBot
     }
 #endif
 
-
+    #region rand_compression
     public MyBot()
     {
 
@@ -120,6 +139,7 @@ public class MyBot : IChessBot
             }
         }
     }
+    #endregion
 
     bool stopThinking() // TODO: Can we save tokens by using properties instead of methods?
     {
@@ -160,8 +180,7 @@ public class MyBot : IChessBot
             Debug.Assert(ttEntry.score != 12345); // the canary value from cancelled searches, would require +5 queens to be computed normally
         }
 #else
-            // TODO: PVS?
-            negamax(depth, -30_000, 30_000, 0, false);
+                    negamax(depth, -30_000, 30_000, 0, false);
 #endif
 
 #if PRINT_DEBUG_INFO
@@ -224,6 +243,8 @@ public class MyBot : IChessBot
 
         int bestScore = -32_000;
         int originalAlpha = alpha;
+        ulong ttIdx = b.ZobristKey & 8_388_607;
+        bool maybePvNode = alpha + 1 < beta;
         if (quiescent)
         {
             // updating bestScore not only saves tokens compared to using a new standPat variable, it also increases playing strength by 100 elo compared to not
@@ -241,38 +262,49 @@ public class MyBot : IChessBot
         }
         else // TODO: Also do a table lookup during quiescent search? Test performance and tokens
         {
-            var lookupVal = transpositionTable[b.ZobristKey & 8_388_607];
+            var lookupVal = transpositionTable[ttIdx];
             // reorder moves: First, we try the entry from the transposition table, then captures, then the rest
             if (lookupVal.key == b.ZobristKey)
                 // TODO: There's some token saving potential here
-                if (lookupVal.depth >= remainingDepth && !isRoot // test for isRoot to make sure bestRootMove gets set
+                // don't do TT cuts in pv nodes (which includes the root) because tt entries can sometimes be wrong
+                // because chess isn't markovian (eg 3 fold repetition)
+                if (lookupVal.depth >= remainingDepth && !maybePvNode
                     && (lookupVal.type == 0 || lookupVal.type < 0 && lookupVal.score <= alpha || lookupVal.type > 0 && lookupVal.score >= beta))
                     return lookupVal.score;
                 else // search the most promising move (as determined by previous searches) first, which creates great alpha beta bounds
                     legalMoves = legalMoves.OrderByDescending(move => move == lookupVal.bestMove); // stable sorting, also works in case of a zobrist hash collision
         }
         // nmp, TODO: tune R, actually make sure phase is correct instead of possibly from a sibling or parent (which shouldn't hurt much but is still incorrect)
-        //if (/*TODO: Not a pv node &&*/ remainingDepth > 3 && allowNMP && phase > 0 && b.TrySkipTurn())
-        //{
-        //    // if we have pvs, we can use pvs here as well (but for now it stays normal negamax)
-        //    // we can't reuse killerIdx cause C# basically captures by reference, so we need to create a new variable
-        //    // increase ply by 20 to prevent clashes with normal search for killer moves
-        //    int nmpScore = -negamax(remainingDepth - 3, -beta, -alpha, ply + 20, false);
-        //    b.UndoSkipTurn();
-        //    if (nmpScore > beta) return nmpScore;
-        //    alpha = Math.Max(alpha, nmpScore);
-        //    bestScore = Math.Max(bestScore, nmpScore); // TODO: Optimize tokens by folding into nmpScore declaration
-        //}
+        if (allowNMP && !maybePvNode && remainingDepth > 3 && phase > 0 && b.TrySkipTurn())
+        {
+            // if we have pvs, we can use pvs here as well (but for now it stays normal negamax)
+            // we can't reuse killerIdx cause C# basically captures by reference, so we need to create a new variable
+            // increase ply by 20 to prevent clashes with normal search for killer moves
+            int nmpScore = -negamax(remainingDepth - 3, -beta, -alpha, ply + 20, false);
+            b.UndoSkipTurn();
+            if (nmpScore > beta) return nmpScore;
+            alpha = Math.Max(alpha, nmpScore);
+            bestScore = Math.Max(bestScore, nmpScore); // TODO: Optimize tokens by folding into nmpScore declaration
+        }
 
         // fail soft: Instead of only updating alpha, maintain an additional bestScore variable. This might be useful later on
         // but also means the TT entries can have lower upper bounds, potentially leading to a few more cuts
         Move localBestMove = legalMoves.First();
         foreach (var move in legalMoves)
         {
-            b.MakeMove(move);
             // check extension: extend depth by 1 (ie don't reduce by 1) for checks -- this has no effect for the quiescent search
             // However, this causes subsequent TT entries to have the same depth as their ancestors, which seems like it might lead to bugs
-            int score = -negamax(remainingDepth - (b.IsInCheck() ? 0 : 1), -beta, -alpha, ply + 1, true);
+            int newDepth = remainingDepth - (b.IsInCheck() ? 0 : 1);
+            // pvs: If we already increased alpha (which should happen in the first node), do a zero window search to confirm the best move so far is
+            // actually the best move in this position (which is more likely to be true the better move ordering works), zws should fail faster so use less time
+            // TODO: Maybe actually check for not being the first child instead of bestScore > alpha since that doesn't work for all-nodes (ie fail-low nodes)?
+            bool doPvs = bestScore > originalAlpha && !quiescent; // TODO: Also do in qsearch? Probably not (cause no tt for qsearch atm) but meassure
+            b.MakeMove(move);
+            // lmr: If not in qsearch and not the first node (aka doPvs), reduce by one unless in a non-quiet position
+            int score = -negamax(newDepth - (doPvs && !move.IsCapture && !b.IsInCheck() ? 1 : 0), doPvs ? -alpha - 1 : -beta, -alpha, ply + 1, true);
+            if (alpha < score && score < beta && doPvs)
+                // zero window search failed, so research with full window
+                score = -negamax(newDepth, -beta, -alpha, ply + 1, true);
             b.UndoMove(move);
 
             // testing this only in the Think function introduces too much variance into the time needed to calculate a move
@@ -291,7 +323,7 @@ public class MyBot : IChessBot
 #endif
                     // TODO: This quiet move detection considers promotions to be quiet, but the mvvlva code doesn't.
                     // Use this definition also for the move ordering code?
-                    if (!move.IsCapture) 
+                    if (!move.IsCapture && move != killerMoves[killerIdx])  // TODO: enabling the move != killerMoves[killerIdx] check looses like 30 elo ?!?
                     {
                         killerMoves[killerIdx + 1] = killerMoves[killerIdx];
                         killerMoves[killerIdx] = move;
@@ -304,8 +336,8 @@ public class MyBot : IChessBot
         if (!quiescent) // don't fold into actual !quiescent test because then we'd need {}, adding an extra token
         {
             ++numTTWrites;
-            if (transpositionTable[b.ZobristKey & 8_388_607].key == 0) ++numTTEntries; // this counter doesn't get reset every move
-            else if (transpositionTable[b.ZobristKey & 8_388_607].key == b.ZobristKey) ++numTranspositions;
+            if (transpositionTable[ttIdx].key == 0) ++numTTEntries; // this counter doesn't get reset every move
+            else if (transpositionTable[ttIdx].key == b.ZobristKey) ++numTranspositions;
             else ++numTTCollisions;
         }
 #endif
@@ -315,7 +347,7 @@ public class MyBot : IChessBot
             // more frequent low-depth results, but doesn't use too many tokens
             // A problem of this approach is that the more nodes it searches (for example, on longer time controls), the less likely it is that useful high-depth
             // positions remain in the table, althoug it seems to work fine for usual 1 minute games
-            transpositionTable[b.ZobristKey & 8_388_607]
+            transpositionTable[ttIdx]
                 = new(b.ZobristKey, localBestMove, (short)bestScore, (byte)remainingDepth, (sbyte)(bestScore <= originalAlpha ? -1 : bestScore >= beta ? 1 : 0));
 
         if (isRoot) bestRootMove = localBestMove;
@@ -339,6 +371,8 @@ public class MyBot : IChessBot
                     ind = 128 * (piece - 1) + BitboardHelper.ClearAndGetIndexOfLSB(ref mask) ^ (stm ? 56 : 0);
                     mg += pesto[ind] + mgPieceValues[piece];
                     eg += pesto[ind + 64] + egPieceValues[piece];
+                    //mg += getPstVal(ind) + pieceVal[piece];
+                    //eg += getPstVal(ind + 64) + pieceVal[piece];
                 }
             }
 
