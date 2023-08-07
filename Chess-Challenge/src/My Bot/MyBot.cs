@@ -7,6 +7,7 @@ using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Linq;
+using System.Numerics;
 using ChessChallenge.API;
 
 /// <summary>
@@ -30,22 +31,10 @@ public class MyBot : IChessBot
 {
     Board b;
 
-    int[] piecePhase = { 0, 0, 1, 1, 2, 4, 0 };
-
-    #region rand_compression
-    // TODO: Save tokens in the following members by cmpressing piece values and by merging arrays (which is cursed but saves tokens)
-    // piece values from PeSTO, see https://www.chessprogramming.org/PeSTO%27s_Evaluation_Function
-    private int[] mgPieceValues = { 0, 82, 337, 365, 477, 1025, 0 };
-    private int[] egPieceValues = { 0, 94, 281, 297, 512, 936, 0 };
-
-    // Each value encodes two seeds for the C# default PRNG, causing it to approximate 6 PeSTO values per seed
-    ulong[] compressedPesto = { 6520592218297469586, 8482085021998488797, 313390007612757208, 2252732680713342633, 2925824399342927830, 7488136143760056370, 3262156790743221366, 8508678682509519297, 8876465218372161471, 677335457148353258, 3741400828778734912, 8975413477562298583, 2904889299511345059, 6087228928159392027, 4688959786833574720, 4716818757098577016, 7023457546842568703, 179940199461641160, 4270698656518574082, 5977270381053457415, 4081790345140221927, 6279986261450464933, 23609238681544594, 4909576089970585300, 8086413049099477623, 3303256491344861777, 8017942003509933625, 3045752169384206299, 8671206576398430491, 5346553071976938091, 3825569484231864525, 5013874612154634018, 7951213101334170686, 7920266985982688926, 4822585101256149179, 8564088513960288943, 2093659733650236066, 7220554320958609243, 8859510234402964837, 2176235602340373179, 6397670207307705640, 4415160624754945640, 3480441179429774139, 6864307048309467343, 1554303478677175384, 5629281188478270691, 8655223854542940312, 2130982693209818021, 6427222714187782579, 1162246339267495032, 8284871759444934889, 7257219422479456951, 5088534659631353214, 126110209024226324, 3915189590944783574, 9171622771817239526, 9147550055270922755, 4629007076750182041, 6072550072943827928, 1886390297413561104, 1521354504315415771, 5130596408850789355, 8842271880519837663, 8801233451296143240 };
-
-    // the aray of pesto values
-    int[] pesto = new int[768];
-    #endregion
-
     #region tier_2
+    
+    // int[] piecePhase = { 0, 0, 1, 1, 2, 4, 0 };
+
     //// JW's compression (which could probably be improved, but evens the playing field when comparing against tier 2 bot
     //ulong[] psts = { 657614902731556116, 420894446315227099, 384592972471695068, 312245244820264086, 364876803783607569, 366006824779723922, 366006826859316500, 786039115310605588, 421220596516513823, 366011295806342421, 366006826859316436, 366006896669578452, 162218943720801556, 440575073001255824, 657087419459913430, 402634039558223453, 347425219986941203, 365698755348489557, 311382605788951956, 147850316371514514, 329107007234708689, 402598430990222677, 402611905376114006, 329415149680141460, 257053881053295759, 291134268204721362, 492947507967247313, 367159395376767958, 384021229732455700, 384307098409076181, 402035762391246293, 328847661003244824, 365712019230110867, 366002427738801364, 384307168185238804, 347996828560606484, 329692156834174227, 365439338182165780, 386018218798040211, 456959123538409047, 347157285952386452, 365711880701965780, 365997890021704981, 221896035722130452, 384289231362147538, 384307167128540502, 366006826859320596, 366006826876093716, 366002360093332756, 366006824694793492, 347992428333053139, 457508666683233428, 329723156783776785, 329401687190893908, 366002356855326100, 366288301819245844, 329978030930875600, 420621693221156179, 422042614449657239, 384602117564867863, 419505151144195476, 366274972473194070, 329406075454444949, 275354286769374224, 366855645423297932, 329991151972070674, 311105941360174354, 256772197720318995, 365993560693875923, 258219435335676691, 383730812414424149, 384601907111998612, 401758895947998613, 420612834953622999, 402607438610388375, 329978099633296596, 67159620133902 };
 
@@ -78,7 +67,7 @@ public class MyBot : IChessBot
 
     // For each depth, store 2 killer moves: A killer move is a non-capturing move that caused a beta cutoff
     // (ie early return due to score >= beta)  in a previous node. This is then used for move ordering
-    private Move[] killerMoves = new Move[1024]; // nmp increaes ply by 20 to prevent overwriting useful data, so accomodate for that
+    private Move[] killerMoves = new Move[1024]; // nmp increases ply by 20 to prevent overwriting useful data, so accomodate for that
 
     // set by the toplevel call to negamax()
     // returning (Move, int) from negamax() would be prettier but use more tokens
@@ -125,20 +114,34 @@ public class MyBot : IChessBot
     }
 #endif
 
-    #region rand_compression
-    public MyBot()
-    {
+    #region compresto
 
-        // Uncompress the rng-compressed pesto values. Big thanks to https://github.com/Selenaut for doing all the hard work.
-        for (int keyIdx = 0; keyIdx < 128; ++keyIdx)
-        {
-            Random rng = new((int)(compressedPesto[keyIdx / 2] >> (keyIdx % 2 * 32)));
-            for (int i = 0; i < 6; i++)
-            { // TODO: Concatenate seeds differently to make this formula use fewer tokens
-                pesto[keyIdx / 2 + keyIdx % 2 * 384 + 64 * i] = rng.Next(-167, 187);
-            }
-        }
-    }
+    private static ulong[] compresto =
+    {
+        2531906049332683555, 1748981496244382085, 1097852895337720349, 879379754340921365, 733287618436800776,
+        1676506906360749833, 957361353080644096, 2531906049332683555, 1400370699429487872, 7891921272903718197,
+        12306085787436563023, 10705271422119415669, 8544333011004326513, 7968995920879187303, 7741846628066281825,
+        7452158230270339349, 5357357457767159349, 2550318802336244280, 5798248685363885890, 5789790151167530830,
+        6222952639246589772, 6657566409878495570, 6013263560801673558, 4407693923506736945, 8243364706457710951,
+        8314078770487191394, 6306293301333023298, 3692787177354050607, 3480508800547106083, 2756844305966902810,
+        18386335130924827, 3252248017965169204, 6871752429727068694, 7516062622759586586, 7737582523311005989,
+        3688521973121554199, 3401675877915367465, 3981239439281566756, 3688238338080057871, 5375663681380401,
+        5639385282757351424, 2601740525735067742, 3123043126030326072, 2104069582342139184, 1017836687573008400,
+        2752300895699678003, 5281087483624900674, 5717642197576017202, 578721382704613384, 14100080608108000698,
+        6654698745744944230, 1808489945494790184, 507499387321389333, 1973657882726156, 74881230395412501,
+        578721382704613384, 10212557253393705, 3407899295075687242, 4201957831109070667, 5866904407588300370,
+        5865785079031356753, 5570777287267344460, 3984647049929379641, 2535897457754910790, 219007409309353485,
+        943238143453304595, 2241421631242834717, 2098155335031661592, 1303832920857255445, 870353785759930383,
+        3397624511334669, 726780562173596164, 1809356472696839713, 1665231324524388639, 1229220018493528859,
+        1590638277979871000, 651911504053672215, 291616928119591952, 1227524515678129678, 6763160767239691,
+        4554615069702439202, 3119099418927382298, 3764532488529260823, 5720789117110010158, 4778967136330467097,
+        3473748882448060443, 794625965904696341, 150601370378243850, 4129336036406339328, 6152322103641660222,
+        6302355975661771604, 5576700317533364290, 4563097935526446648, 4706642459836630839, 4126790774883761967,
+        2247925333337909269, 17213489408, 6352120424995714304, 982348882
+    };
+
+    private byte[] pesto = compresto.SelectMany(BitConverter.GetBytes).ToArray();
+
     #endregion
 
     bool stopThinking() // TODO: Can we save tokens by using properties instead of methods?
@@ -151,7 +154,7 @@ public class MyBot : IChessBot
 
     public Move Think(Board board, Timer theTimer)
     {
-        // Ideas to try out: Better positional eval (with better compressed psqts, passed pawns bit masks from Bits.cs, ...),
+        // Ideas to try out: Better positional eval (with better compressed psqts, passed pawns bit masks from Bits.cs, king safety by (semi) open file, ...),
         // removing both b.IsDraw() and b.IsInCheckmate() from the leaf code path to avoid calling GetLegalMoves() (but first update to 1.18),
         // updating a materialDif variable instead of recalculating that from scratch in every eval() call,
         // null move pruning, reverse futility pruning, recapture extension (by 1 ply, no need to limit number of extensions: Extend when prev moved captured same square),
@@ -162,7 +165,7 @@ public class MyBot : IChessBot
         // Also, apparently LINQ is really slow for no good reason, so if we can spare the tokens we may want to use a manual for loop :(
         b = board;
         timer = theTimer;
-
+        
         var moves = board.GetLegalMoves();
         // iterative deepening using the tranposition table for move ordering; without the bound on depth, it could exceed
         // 256 in case of forced checkmates, but that would overflow the TT entry and could potentially create problems
@@ -221,7 +224,7 @@ public class MyBot : IChessBot
 #endif
 
         if (b.IsInCheckmate()) // TODO: Avoid (indirectly) calling GetLegalMoves in leafs, which is very slow apparently
-            return -30_000 + ply; // being checkmated later is better (as is checkmating earlier)
+            return ply - 30_000; // being checkmated later is better (as is checkmating earlier); save
         if (b.IsDraw())
             // time-based contempt(tm): if we have more time than our opponent, try to cause timeouts.
             // This really isn't the best way to calculate the contempt factor but it's relatively token efficient.
@@ -229,7 +232,6 @@ public class MyBot : IChessBot
             // return (timer.MillisecondsRemaining - timer.OpponentMillisecondsRemaining) * (ply % 2 * 200 - 100) / timer.GameStartTimeMilliseconds;
             return 0;
 
-        // TODO: Implement PVS, which can be used to disable dangerous optimizations like rfp, lmr (obviously) and nmp in pv nodes.
         bool isRoot = ply == 0;
         int killerIdx = ply * 2;
         bool quiescent = remainingDepth <= 0;
@@ -255,9 +257,10 @@ public class MyBot : IChessBot
             // delta pruning, a version of futility pruning: If the current position is hopeless, abort
             // technically, we should also check capturing promotions, but they are rare so we don't care
             // TODO: At some point in the future, test against this to see if the token saving potential is worth it
-            //if (staticEval + pieceValues[(int)localBestMove.CapturePieceType] + 500 < alpha) return alpha;
+            if (bestScore + 1150 < alpha) return alpha;
             // The following is the "correct" way of doing it, but may not be stronger now (retest,also tune parameters)
-            if (bestScore + mgPieceValues[legalMoves.Select(move => (int)move.CapturePieceType).Max()] + 300 < alpha) return bestScore; // TODO: This only has a very small effect
+            // This doesn't work at all any more for psqt adjusted piece values
+            // if (bestScore + mgPieceValues[legalMoves.Select(move => (int)move.CapturePieceType).Max()] + 300 < alpha) return bestScore; // TODO: This only has a very small effect
             alpha = Math.Max(alpha, bestScore); // TODO: If statement should use fewer tokens
         }
         else // TODO: Also do a table lookup during quiescent search? Test performance and tokens
@@ -268,7 +271,8 @@ public class MyBot : IChessBot
                 // TODO: There's some token saving potential here
                 // don't do TT cuts in pv nodes (which includes the root) because tt entries can sometimes be wrong
                 // because chess isn't markovian (eg 3 fold repetition)
-                if (lookupVal.depth >= remainingDepth && !maybePvNode
+                // the Math.Abs(lookupVal.score) < 29_000 is a crude (but working) way to not do TT cutoffs for mate scores, TODO: Test if necessary (probably not)
+                if (lookupVal.depth >= remainingDepth && Math.Abs(lookupVal.score) < 29_000 && !maybePvNode
                     && (lookupVal.type == 0 || lookupVal.type < 0 && lookupVal.score <= alpha || lookupVal.type > 0 && lookupVal.score >= beta))
                     return lookupVal.score;
                 else // search the most promising move (as determined by previous searches) first, which creates great alpha beta bounds
@@ -278,7 +282,7 @@ public class MyBot : IChessBot
         if (allowNMP && !maybePvNode && remainingDepth > 3 && phase > 0 && b.TrySkipTurn())
         {
             // if we have pvs, we can use pvs here as well (but for now it stays normal negamax)
-            // we can't reuse killerIdx cause C# basically captures by reference, so we need to create a new variable
+            // we can't reuse killerIdx because C# basically captures by reference, so we need to create a new variable
             // increase ply by 20 to prevent clashes with normal search for killer moves
             int nmpScore = -negamax(remainingDepth - 3, -beta, -alpha, ply + 20, false);
             b.UndoSkipTurn();
@@ -361,18 +365,18 @@ public class MyBot : IChessBot
         phase = mg = eg = 0;
         foreach (bool stm in new[] { true, false })
         {
-            for (var p = PieceType.Pawn; p <= PieceType.King; p++)
+            for (var p = PieceType.None; ++p <= PieceType.King; )
             {
-                int piece = (int)p, ind;
+                int piece = (int)p - 1, ind;
                 ulong mask = b.GetPieceBitboard(p, stm);
                 while (mask != 0)
                 {
-                    phase += piecePhase[piece];
-                    ind = 128 * (piece - 1) + BitboardHelper.ClearAndGetIndexOfLSB(ref mask) ^ (stm ? 56 : 0);
-                    mg += pesto[ind] + mgPieceValues[piece];
-                    eg += pesto[ind + 64] + egPieceValues[piece];
-                    //mg += getPstVal(ind) + pieceVal[piece];
-                    //eg += getPstVal(ind + 64) + pieceVal[piece];
+                    phase += pesto[768 + piece];
+                    ind = 64 * piece + BitboardHelper.ClearAndGetIndexOfLSB(ref mask) ^ (stm ? 56 : 0);
+                    // The (47 << piece) trick doesn't really save all that much at the moment, but...
+                    // ...TODO: By storing mg tables first, then eg tables, this code can be reused for mg and eg calculation, potentially saving a few tokens
+                    mg += pesto[ind] + (47 << piece) + pesto[piece + 776];
+                    eg += pesto[ind + 384] + (47 << piece) + pesto[piece + 782];
                 }
             }
 
@@ -380,6 +384,15 @@ public class MyBot : IChessBot
             eg = -eg;
         }
 
-        return (mg * phase + eg * (24 - phase)) / 24 * (b.IsWhiteToMove ? 1 : -1);
+        return (mg * phase + eg * (24 - phase)) / (b.IsWhiteToMove ? 24 : -24);
+        // int res = (mg * phase + eg * (24 - phase)) / 24 * (b.IsWhiteToMove ? 1 : -1);
+        // int expected = Pesto.originalPestoEval(b);
+        // if (res != expected)
+        // {
+        //     Console.WriteLine("eval was {0}, should be {1}", res, expected);
+        //     Debug.Assert(false);
+        // }
+        // return res;
     }
+    
 }
