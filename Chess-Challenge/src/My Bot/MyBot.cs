@@ -80,13 +80,13 @@ public class MyBot : IChessBot
     private int mg, eg, phase;
 
 #if PRINT_DEBUG_INFO
-    int allNodeCtr;
-    int nonQuiescentNodeCtr;
-    int betaCutoffCtr;
+    long allNodeCtr;
+    long nonQuiescentNodeCtr;
+    long betaCutoffCtr;
     // node where remainingDepth is at least 2, so move ordering actually matters
     // (it also matters for quiescent nodes but it's difficult to count non-leaf quiescent nodes and they don't use the TT, would skew results)
-    int parentOfInnerNodeCtr;
-    int parentOfInnerNodeBetaCutoffCtr;
+    long parentOfInnerNodeCtr;
+    long parentOfInnerNodeBetaCutoffCtr;
     int numTTEntries;
     int numTTCollisions;
     int numTranspositions;
@@ -144,12 +144,14 @@ public class MyBot : IChessBot
 
     #endregion
 
-    bool stopThinking() // TODO: Can we save tokens by using properties instead of methods?
+    #if PRINT_DEBUG_INFO
+    bool shouldStopThinking() // TODO: Can we save tokens by using properties instead of methods?
     {
         // The / 32 makes the most sense when the game last for another 32 moves. Currently, poor bot performance causes unnecesarily
         // long games in winning positions but as we improve our engine we should see less time trouble overall.
         return timer.MillisecondsElapsedThisTurn > Math.Min(timer.GameStartTimeMilliseconds / 64, timer.MillisecondsRemaining / 32);
     }
+    #endif
 
 
     public Move Think(Board board, Timer theTimer)
@@ -167,10 +169,10 @@ public class MyBot : IChessBot
         timer = theTimer;
         
         var moves = board.GetLegalMoves();
-        // iterative deepening using the tranposition table for move ordering; without the bound on depth, it could exceed
+        // iterative deepening using the transposition table for move ordering; without the bound on depth, it could exceed
         // 256 in case of forced checkmates, but that would overflow the TT entry and could potentially create problems
-        for (int depth = 1; depth < 50 && !stopThinking(); ++depth) // starting with depth 0 wouldn't only be useless but also incorrect due to assumptions in negamax
 #if PRINT_DEBUG_INFO
+        for (int depth = 1; depth++ < 50 && !shouldStopThinking(); ) // starting with depth 0 wouldn't only be useless but also incorrect due to assumptions in negamax
         { // comment out `&& !stopThinking()` to save some tokens at the cost of slightly less readable debug output
             int score = negamax(depth, -30_000, 30_000, 0, false);
 
@@ -183,7 +185,8 @@ public class MyBot : IChessBot
             Debug.Assert(ttEntry.score != 12345); // the canary value from cancelled searches, would require +5 queens to be computed normally
         }
 #else
-                    negamax(depth, -30_000, 30_000, 0, false);
+        for (int depth = 0; depth++ < 50; )
+            negamax(depth, -30_000, 30_000, 0, false);
 #endif
 
 #if PRINT_DEBUG_INFO
@@ -232,27 +235,31 @@ public class MyBot : IChessBot
             // return (timer.MillisecondsRemaining - timer.OpponentMillisecondsRemaining) * (ply % 2 * 200 - 100) / timer.GameStartTimeMilliseconds;
             return 0;
 
-        bool isRoot = ply == 0;
-        int killerIdx = ply * 2;
-        bool quiescent = remainingDepth <= 0;
-        var legalMoves = b.GetLegalMoves(quiescent).OrderByDescending(move =>
+        bool isRoot = ply == 0,
+            inQsearch = remainingDepth <= 0,
+            maybePvNode = alpha + 1 < beta,
+            doPvs; // moved here from the loop over moves to save the `bool` token. 
+        int bestScore = -32_000,
+            originalAlpha = alpha,
+            killerIdx = ply * 2,
+            score, // moved here from the loop over moves to save the `int` token.
+            newDepth, // moved here from the loop over moves to save the `int` token.
+            nmpScore; // moved here from the nmp if statement to save the `int` token
+        ulong ttIdx = b.ZobristKey & 8_388_607;
+        
+        var legalMoves = b.GetLegalMoves(inQsearch).OrderByDescending(move =>
             // order promotions and captures first (sorted by the value of the captured piece and then the captured, aka MVV/LVA),
             // then killer moves, then normal ("quiet" non-killer) moves
             move.IsPromotion ? (int)move.PromotionPieceType * 100 : move.IsCapture ? (int)move.CapturePieceType * 100 - (int)move.MovePieceType :
                 move == killerMoves[killerIdx] || move == killerMoves[killerIdx + 1] ? -1000 : -1001);
         if (!legalMoves.Any()) return eval(); // can only happen in quiescent search at the moment
 
-
-        int bestScore = -32_000;
-        int originalAlpha = alpha;
-        ulong ttIdx = b.ZobristKey & 8_388_607;
-        bool maybePvNode = alpha + 1 < beta;
-        if (quiescent)
+        if (inQsearch)
         {
             // updating bestScore not only saves tokens compared to using a new standPat variable, it also increases playing strength by 100 elo compared to not
             // updating bestScore. This is because the standPat score is often a more reliable estimate than forcibly taking a possible capture, so it should be
             // returned if all captures fail low.
-            bestScore = eval(); // TODO: Instead of introducing new named variables, use an `int temp` member that can be used for these things to save tokens.
+            bestScore = eval();
             if (bestScore >= beta) return bestScore;
             // delta pruning, a version of futility pruning: If the current position is hopeless, abort
             // technically, we should also check capturing promotions, but they are rare so we don't care
@@ -284,7 +291,7 @@ public class MyBot : IChessBot
             // if we have pvs, we can use pvs here as well (but for now it stays normal negamax)
             // we can't reuse killerIdx because C# basically captures by reference, so we need to create a new variable
             // increase ply by 20 to prevent clashes with normal search for killer moves
-            int nmpScore = -negamax(remainingDepth - 3, -beta, -alpha, ply + 20, false);
+            nmpScore = -negamax(remainingDepth - 3, -beta, -alpha, ply + 20, false);
             b.UndoSkipTurn();
             if (nmpScore > beta) return nmpScore;
             alpha = Math.Max(alpha, nmpScore);
@@ -298,21 +305,24 @@ public class MyBot : IChessBot
         {
             // check extension: extend depth by 1 (ie don't reduce by 1) for checks -- this has no effect for the quiescent search
             // However, this causes subsequent TT entries to have the same depth as their ancestors, which seems like it might lead to bugs
-            int newDepth = remainingDepth - (b.IsInCheck() ? 0 : 1);
+            newDepth = remainingDepth - (b.IsInCheck() ? 0 : 1);
             // pvs: If we already increased alpha (which should happen in the first node), do a zero window search to confirm the best move so far is
             // actually the best move in this position (which is more likely to be true the better move ordering works), zws should fail faster so use less time
             // TODO: Maybe actually check for not being the first child instead of bestScore > alpha since that doesn't work for all-nodes (ie fail-low nodes)?
-            bool doPvs = bestScore > originalAlpha && !quiescent; // TODO: Also do in qsearch? Probably not (cause no tt for qsearch atm) but meassure
+            doPvs = bestScore > originalAlpha && !inQsearch; // TODO: Also do in qsearch? Probably not (cause no tt for qsearch atm) but meassure
             b.MakeMove(move);
             // lmr: If not in qsearch and not the first node (aka doPvs), reduce by one unless in a non-quiet position
-            int score = -negamax(newDepth - (doPvs && !move.IsCapture && !b.IsInCheck() ? 1 : 0), doPvs ? -alpha - 1 : -beta, -alpha, ply + 1, true);
+            score = -negamax(newDepth - (doPvs && !move.IsCapture && !b.IsInCheck() ? 1 : 0), doPvs ? -alpha - 1 : -beta, -alpha, ply + 1, true);
             if (alpha < score && score < beta && doPvs)
                 // zero window search failed, so research with full window
                 score = -negamax(newDepth, -beta, -alpha, ply + 1, true);
             b.UndoMove(move);
 
-            // testing this only in the Think function introduces too much variance into the time needed to calculate a move
-            if (stopThinking()) return 12345; // the value won't be used, so use a canary to detect bugs
+            // testing this only in the Think function introduces too much variance into the time needed to calculate a move,
+            // but (at least on Linux? T0D0: Test on windows!) getting the elapsed time is apparently (?) super expensive, but
+            // adding !quiescent doesn't improve the bot (depth < 2 even makes it worse because it looses on time)
+            if (timer.MillisecondsElapsedThisTurn > Math.Min(timer.GameStartTimeMilliseconds / 64, timer.MillisecondsRemaining / 32))
+                return 12345; // the value won't be used, so use a canary to detect bugs
 
             if (score > bestScore)
             {
@@ -337,7 +347,7 @@ public class MyBot : IChessBot
             }
         }
 #if PRINT_DEBUG_INFO
-        if (!quiescent) // don't fold into actual !quiescent test because then we'd need {}, adding an extra token
+        if (!inQsearch) // don't fold into actual !quiescent test because then we'd need {}, adding an extra token
         {
             ++numTTWrites;
             if (transpositionTable[ttIdx].key == 0) ++numTTEntries; // this counter doesn't get reset every move
@@ -345,7 +355,7 @@ public class MyBot : IChessBot
             else ++numTTCollisions;
         }
 #endif
-        if (!quiescent)
+        if (!inQsearch)
             // always overwrite on hash table collisions (pure hash collisions should be pretty rare, but hash table collision frequent once the table is full)
             // this removes old entries that we don't care about any more at the cost of potentially throwing out useful high-depth results in favor of much
             // more frequent low-depth results, but doesn't use too many tokens
@@ -394,5 +404,4 @@ public class MyBot : IChessBot
         // }
         // return res;
     }
-    
 }
