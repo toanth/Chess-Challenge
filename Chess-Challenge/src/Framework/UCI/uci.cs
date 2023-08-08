@@ -100,7 +100,7 @@ namespace ChessChallenge.UCI
             {
                 case "uci":
                     Console.WriteLine("id name Chess Challenge");
-                    Console.WriteLine("id author toanth, Sebastian Lague");
+                    Console.WriteLine("id author AspectOfTheNoob, Sebastian Lague");
                     Console.WriteLine("uciok");
                     break;
                 case "ucinewgame":

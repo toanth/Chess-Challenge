@@ -157,9 +157,9 @@ public class MyBot : IChessBot
     public Move Think(Board board, Timer theTimer)
     {
         // Ideas to try out: Better positional eval (with better compressed psqts, passed pawns bit masks from Bits.cs, king safety by (semi) open file, ...),
-        // removing both b.IsDraw() and b.IsInCheckmate() from the leaf code path to avoid calling GetLegalMoves() (but first update to 1.18),
-        // updating a materialDif variable instead of recalculating that from scratch in every eval() call,
-        // null move pruning, reverse futility pruning, recapture extension (by 1 ply, no need to limit number of extensions: Extend when prev moved captured same square),
+        // removing both b.IsDraw() and b.IsInCheckmate() from the leaf code path to avoid calling GetLegalMoves() (but first test if that's still useful since 1.18),
+        // updating a materialDif variable instead of recalculating that from scratch in every eval() call (probably not worth it even without the token limit?),
+        // fix null move pruning, add reverse futility pruning, recapture extension (by 1 ply, no need to limit number of extensions: Extend when prev moved captured same square),
         // depth replacement strategy for the TT (maybe by adding board.PlyCount (which is the actual position's ply count) so older entries get replaced),
         // using a simple form of cuckoo hashing for the TT where we take the lowest or highest bits of the zobrist key as index, maybe combined with
         // different replacement strategies (depth vs always overwrite) for both
@@ -172,6 +172,7 @@ public class MyBot : IChessBot
         // iterative deepening using the transposition table for move ordering; without the bound on depth, it could exceed
         // 256 in case of forced checkmates, but that would overflow the TT entry and could potentially create problems
 #if PRINT_DEBUG_INFO
+        //BitboardHelper.StopVisualizingBitboard();
         for (int depth = 1; depth++ < 50 && !shouldStopThinking(); ) // starting with depth 0 wouldn't only be useless but also incorrect due to assumptions in negamax
         { // comment out `&& !stopThinking()` to save some tokens at the cost of slightly less readable debug output
             int score = negamax(depth, -30_000, 30_000, 0, false);
@@ -283,6 +284,7 @@ public class MyBot : IChessBot
                     && (lookupVal.type == 0 || lookupVal.type < 0 && lookupVal.score <= alpha || lookupVal.type > 0 && lookupVal.score >= beta))
                     return lookupVal.score;
                 else // search the most promising move (as determined by previous searches) first, which creates great alpha beta bounds
+                    // TODO: Don't call OrderByDescending two times, also use TT in quiescent search
                     legalMoves = legalMoves.OrderByDescending(move => move == lookupVal.bestMove); // stable sorting, also works in case of a zobrist hash collision
         }
         // nmp, TODO: tune R, actually make sure phase is correct instead of possibly from a sibling or parent (which shouldn't hurt much but is still incorrect)
@@ -375,23 +377,44 @@ public class MyBot : IChessBot
         phase = mg = eg = 0;
         foreach (bool stm in new[] { true, false })
         {
+            //int mopup = 0;
+            //Square opponentKing = b.GetKingSquare(!stm);
             for (var p = PieceType.None; ++p <= PieceType.King; )
             {
-                int piece = (int)p - 1, ind;
+                int piece = (int)p - 1, square, index;
                 ulong mask = b.GetPieceBitboard(p, stm);
                 while (mask != 0)
                 {
                     phase += pesto[768 + piece];
-                    ind = 64 * piece + BitboardHelper.ClearAndGetIndexOfLSB(ref mask) ^ (stm ? 56 : 0);
+                    square = BitboardHelper.ClearAndGetIndexOfLSB(ref mask);
+                    index = square ^ (stm ? 56 : 0) + 64 * piece;
                     // The (47 << piece) trick doesn't really save all that much at the moment, but...
                     // ...TODO: By storing mg tables first, then eg tables, this code can be reused for mg and eg calculation, potentially saving a few tokens
-                    mg += pesto[ind] + (47 << piece) + pesto[piece + 776];
-                    eg += pesto[ind + 384] + (47 << piece) + pesto[piece + 782];
+                    mg += pesto[index] + (47 << piece) + pesto[piece + 776];
+                    eg += pesto[index + 384] + (47 << piece) + pesto[piece + 782];
+                    //mopup += Math.Abs(square / 8 - opponentKing.Rank) + Math.Abs(square % 8 - opponentKing.File);
+
+//                    // passed pawns detection, doesn't increase elo
+//                    ulong fileMask = (((0x700ul << square % 8 >> 1) & 0xff00) * 0x1010101010101);
+//                    ulong passedPawnMask = (stm ? fileMask << (square & 0xf8) : fileMask >> (8 + (square & 0xf8 ^ 56)));
+//                    if (piece == 0 && (b.GetPieceBitboard(p, !stm) & passedPawnMask) == 0)
+//                    {
+//#if PRINT_DEBUG_INFO
+//                        BitboardHelper.VisualizeBitboard(passedPawnMask);
+//                        Console.WriteLine("Passed pawn: {0}", newSquare(square).ToString());
+//#endif
+//                        eg += (square ^ (stm ? 0 : 56)) / 8 * 20;
+//                    }
                 }
             }
 
+            // king safety: Is the king on a semi open file?
+            //+ (((b.GetPieceBitboard(PieceType.Pawn, !stm) >> b.GetKingSquare(stm).File) & 0x0001_0101_0101_0101) == 0 ? 0 : 50)
+            // king safety: Replace the king by a virtual queen and count the number of squares it can reach as a measure of how open the king is.
+            // This is a very crude approximation, but doesn't require too many tokens. (Scale by negative amount for endgame?)
+            //mg -= 7 * BitboardHelper.GetNumberOfSetBits(BitboardHelper.GetPieceAttacks(PieceType.Queen, b.GetKingSquare(stm), stm ? b.WhitePiecesBitboard : b.BlackPiecesBitboard, stm));
             mg = -mg;
-            eg = -eg;
+            eg = /*mopup*/ -eg ;
         }
 
         return (mg * phase + eg * (24 - phase)) / (b.IsWhiteToMove ? 24 : -24);
@@ -400,6 +423,7 @@ public class MyBot : IChessBot
         // if (res != expected)
         // {
         //     Console.WriteLine("eval was {0}, should be {1}", res, expected);
+        //     Console.WriteLine(b.CreateDiagram());
         //     Debug.Assert(false);
         // }
         // return res;
