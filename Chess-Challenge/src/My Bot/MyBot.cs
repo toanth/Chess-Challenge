@@ -114,18 +114,23 @@ public class MyBot : IChessBot
         if (remainingDepth > 1) ++parentOfInnerNodeCtr;
 #endif
 
-        // replacing those functions with legalMoves.Length == 0 checks (plus repetition detection, insufficient material) didn't gain elo
-        if (board.IsInCheckmate()) // TODO: Move after GetLegalMoves so we don't do this part of move gen twice, measure elo! -- Then, maybe try replacing these functions again
-            return ply - 30_000; // being checkmated later is better (as is checkmating earlier); save
-        if (board.IsDraw())
-            return 0;
-
-
         bool isRoot = ply == 0,
             inQsearch = remainingDepth <= 0;
         int bestScore = -32_000,
             originalAlpha = alpha,
             standPat = eval();
+
+        // Using stackalloc doesn't gain elo
+        var legalMoves = board.GetLegalMoves(inQsearch);
+        int numMoves = legalMoves.Length;
+
+        // replacing those functions with legalMoves.Length == 0 checks (plus repetition detection, insufficient material) didn't gain elo, TODO: Retest
+        if (board.IsInCheckmate()) // TODO: Move after GetLegalMoves so we don't do this part of move gen twice, measure elo! -- Then, maybe try replacing these functions again
+            return ply - 30_000; // being checkmated later is better (as is checkmating earlier); save
+        if (board.IsDraw())
+            return 0;
+        if (numMoves == 0) // can only happen in qsearch for now
+            return standPat; // TODO: If we search all moves while in check in qsearch, this can absorb the IsInCheckmate() test by adding a IsInCheck() test here
 
         if (inQsearch)
         {
@@ -134,12 +139,6 @@ public class MyBot : IChessBot
             if (alpha < standPat) alpha = standPat;
         }
 
-        // Using stackalloc doesn't gain elo
-        var legalMoves = board.GetLegalMoves(inQsearch);
-        int numMoves = legalMoves.Length;
-        if (numMoves == 0)
-            return standPat;
-        
         ref Move ttMove = ref ttMoves[board.ZobristKey & 0x1ff_ffff];
 
         // using this manual for loop and Array.Sort gained about 50 elo compared to OrderByDescending
@@ -180,7 +179,7 @@ public class MyBot : IChessBot
         }
 
         if (isRoot) bestRootMove = localBestMove;
-        // not updating the tt move in qsearch gives close to 20 elo (with close to 20 elo error bounds, but meassured two times with 1000 games)
+        // not updating the tt move in qsearch gives close to 20 elo (with close to 20 elo error bounds, but meassured two times with 1000 games each)
         if (!inQsearch)
             ttMove = localBestMove;
 
