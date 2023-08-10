@@ -21,18 +21,19 @@ namespace ChessChallenge.Example
         private Timer timer;
 
         // 1 << 25 entries (without the pesto values, it would technically be possible to store exactly 1 << 26 Moves with 4 byte per Move)
+        // the tt move ordering alone gained almost 400 elo
         Move[] ttMoves = new Move[0x200_0000];
 
         private Move bestRootMove;
 
 #if PRINT_DEBUG_INFO
-        long allNodeCtr;
-        long nonQuiescentNodeCtr;
-        long betaCutoffCtr;
-        // node where remainingDepth is at least 2, so move ordering actually matters
-        // (it also matters for quiescent nodes but it's difficult to count non-leaf quiescent nodes and they don't use the TT, would skew results)
-        long parentOfInnerNodeCtr;
-        long parentOfInnerNodeBetaCutoffCtr;
+    long allNodeCtr;
+    long nonQuiescentNodeCtr;
+    long betaCutoffCtr;
+    // node where remainingDepth is at least 2, so move ordering actually matters
+    // (it also matters for quiescent nodes but it's difficult to count non-leaf quiescent nodes and they don't use the TT, would skew results)
+    long parentOfInnerNodeCtr;
+    long parentOfInnerNodeBetaCutoffCtr;
 #endif
 
         #region compresto
@@ -84,23 +85,23 @@ namespace ChessChallenge.Example
             {
                 int score = negamax(depth, -30_000, 30_000, 0);
 #if PRINT_DEBUG_INFO
-                Console.WriteLine("Depth {0}, score {1}, best move {2}", depth, score, bestRootMove);
+            Console.WriteLine("Depth {0}, score {1}, best move {2}", depth, score, bestRootMove);
 #endif
             }
 
 #if PRINT_DEBUG_INFO
-            Console.WriteLine("All nodes: " + allNodeCtr + ", non quiescent: " + nonQuiescentNodeCtr + ", beta cutoff: " + betaCutoffCtr
-                + ", percent cutting (higher is better): " + (100.0 * betaCutoffCtr / allNodeCtr).ToString("0.0")
-                + ", percent cutting for parents of inner nodes: " + (100.0 * parentOfInnerNodeBetaCutoffCtr / parentOfInnerNodeCtr).ToString("0.0"));
-            Console.WriteLine("NPS: {0}k", (allNodeCtr / (double)timer.MillisecondsElapsedThisTurn).ToString("0.0"));
-            Console.WriteLine("Time:{0} of {1} ms, remaining {2}", timer.MillisecondsElapsedThisTurn, timer.GameStartTimeMilliseconds, timer.MillisecondsRemaining);
-            Console.WriteLine("PV: ");
-            Console.WriteLine();
-            allNodeCtr = 0;
-            nonQuiescentNodeCtr = 0;
-            betaCutoffCtr = 0;
-            parentOfInnerNodeCtr = 0;
-            parentOfInnerNodeBetaCutoffCtr = 0;
+        Console.WriteLine("All nodes: " + allNodeCtr + ", non quiescent: " + nonQuiescentNodeCtr + ", beta cutoff: " + betaCutoffCtr
+            + ", percent cutting (higher is better): " + (100.0 * betaCutoffCtr / allNodeCtr).ToString("0.0")
+            + ", percent cutting for parents of inner nodes: " + (100.0 * parentOfInnerNodeBetaCutoffCtr / parentOfInnerNodeCtr).ToString("0.0"));
+        Console.WriteLine("NPS: {0}k", (allNodeCtr / (double)timer.MillisecondsElapsedThisTurn).ToString("0.0"));
+        Console.WriteLine("Time:{0} of {1} ms, remaining {2}", timer.MillisecondsElapsedThisTurn, timer.GameStartTimeMilliseconds, timer.MillisecondsRemaining);
+        Console.WriteLine("PV: ");
+        Console.WriteLine();
+        allNodeCtr = 0;
+        nonQuiescentNodeCtr = 0;
+        betaCutoffCtr = 0;
+        parentOfInnerNodeCtr = 0;
+        parentOfInnerNodeBetaCutoffCtr = 0;
 #endif
 
             return bestRootMove;
@@ -110,15 +111,17 @@ namespace ChessChallenge.Example
         int negamax(int remainingDepth, int alpha, int beta, int ply)
         {
 #if PRINT_DEBUG_INFO
-            ++allNodeCtr;
-            if (remainingDepth > 0) ++nonQuiescentNodeCtr;
-            if (remainingDepth > 1) ++parentOfInnerNodeCtr;
+        ++allNodeCtr;
+        if (remainingDepth > 0) ++nonQuiescentNodeCtr;
+        if (remainingDepth > 1) ++parentOfInnerNodeCtr;
 #endif
 
-            if (board.IsInCheckmate()) // TODO: Avoid (indirectly) calling GetLegalMoves in leafs, which is very slow apparently
+            // replacing those functions with legalMoves.Length == 0 checks (plus repetition detection, insufficient material) didn't gain elo
+            if (board.IsInCheckmate()) // TODO: Move after GetLegalMoves so we don't do this part of move gen twice, measure elo! -- Then, maybe try replacing these functions again
                 return ply - 30_000; // being checkmated later is better (as is checkmating earlier); save
             if (board.IsDraw())
                 return 0;
+
 
             bool isRoot = ply == 0,
                 inQsearch = remainingDepth <= 0;
@@ -142,7 +145,7 @@ namespace ChessChallenge.Example
             ref Move ttMove = ref ttMoves[board.ZobristKey & 0x1ff_ffff];
 
             // using this manual for loop and Array.Sort gained about 50 elo compared to OrderByDescending
-            var scores = new int[numMoves]; // TODO: Make static/ member to avoid potential SO?
+            var scores = new int[numMoves];
             for (int i = 0; i < numMoves; i++)
             {
                 Move move = legalMoves[i];
@@ -170,8 +173,8 @@ namespace ChessChallenge.Example
                     if (score >= beta)
                     {
 #if PRINT_DEBUG_INFO
-                        ++betaCutoffCtr;
-                        if (remainingDepth > 1) ++parentOfInnerNodeBetaCutoffCtr;
+                    ++betaCutoffCtr;
+                    if (remainingDepth > 1) ++parentOfInnerNodeBetaCutoffCtr;
 #endif
                         break;
                     }
@@ -179,7 +182,9 @@ namespace ChessChallenge.Example
             }
 
             if (isRoot) bestRootMove = localBestMove;
-            ttMove = localBestMove;
+            // not updating the tt move in qsearch gives close to 20 elo (with close to 20 elo error bounds, but meassured two times with 1000 games)
+            if (!inQsearch)
+                ttMove = localBestMove;
 
             return bestScore;
         }
@@ -246,7 +251,6 @@ namespace ChessChallenge.Example
             // }
             // return res;
         }
-
 
         //        //JW's example bot, aka tier 2 bot
         //        Move bestmoveRoot = Move.NullMove;

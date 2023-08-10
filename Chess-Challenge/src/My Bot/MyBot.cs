@@ -115,10 +115,11 @@ public class MyBot : IChessBot
 #endif
 
         // replacing those functions with legalMoves.Length == 0 checks (plus repetition detection, insufficient material) didn't gain elo
-        if (board.IsInCheckmate()) // TODO: Avoid (indirectly) calling GetLegalMoves in leafs, which is very slow apparently
+        if (board.IsInCheckmate()) // TODO: Move after GetLegalMoves so we don't do this part of move gen twice, measure elo! -- Then, maybe try replacing these functions again
             return ply - 30_000; // being checkmated later is better (as is checkmating earlier); save
         if (board.IsDraw())
             return 0;
+
 
         bool isRoot = ply == 0,
             inQsearch = remainingDepth <= 0;
@@ -138,7 +139,7 @@ public class MyBot : IChessBot
         int numMoves = legalMoves.Length;
         if (numMoves == 0)
             return standPat;
-
+        
         ref Move ttMove = ref ttMoves[board.ZobristKey & 0x1ff_ffff];
 
         // using this manual for loop and Array.Sort gained about 50 elo compared to OrderByDescending
@@ -179,7 +180,9 @@ public class MyBot : IChessBot
         }
 
         if (isRoot) bestRootMove = localBestMove;
-        ttMove = localBestMove;
+        // not updating the tt move in qsearch gives close to 20 elo (with close to 20 elo error bounds, but meassured two times with 1000 games)
+        if (!inQsearch)
+            ttMove = localBestMove;
 
         return bestScore;
     }
