@@ -115,23 +115,25 @@ namespace ChessChallenge.Example
         if (remainingDepth > 1) ++parentOfInnerNodeCtr;
 #endif
 
+        // Using stackalloc doesn't gain elo
         bool isRoot = ply == 0,
             inQsearch = remainingDepth <= 0;
-        int bestScore = -32_000,
+        var legalMoves = board.GetLegalMoves(inQsearch);
+        int numMoves = legalMoves.Length,
+            bestScore = -32_000,
             originalAlpha = alpha,
             standPat = eval();
+        // calculating IsInCheck() before GetLegalMoves() loses very approx. 10 elo due to extra work
+        bool inCheck = board.IsInCheck();
 
-        // Using stackalloc doesn't gain elo
-        var legalMoves = board.GetLegalMoves(inQsearch);
-        int numMoves = legalMoves.Length;
 
-        // replacing those functions with legalMoves.Length == 0 checks (plus repetition detection, insufficient material) didn't gain elo, TODO: Retest
-        if (board.IsInCheckmate()) // TODO: Move after GetLegalMoves so we don't do this part of move gen twice, measure elo! -- Then, maybe try replacing these functions again
-            return ply - 30_000; // being checkmated later is better (as is checkmating earlier); save
+        // replacing those functions with legalMoves.Length == 0 checks (plus repetition detection, insufficient material) didn't gain elo, TODO: Retest eventually
+        if (board.IsInCheckmate())
+            return ply - 30_000; // being checkmated later is better (as is checkmating earlier)
         if (board.IsDraw())
             return 0;
         if (numMoves == 0) // can only happen in qsearch for now
-            return standPat; // TODO: If we search all moves while in check in qsearch, this can absorb the IsInCheckmate() test by adding a IsInCheck() test here
+            return standPat;
 
         if (inQsearch)
         {
@@ -150,7 +152,6 @@ namespace ChessChallenge.Example
             scores[i] = move == ttMove ? -10_000 : move.IsCapture ? (int)move.MovePieceType - (int)move.CapturePieceType * 100 : 0;
         }
         Array.Sort(scores, legalMoves);
-
 
         Move localBestMove = Move.NullMove;
         foreach (var move in legalMoves)
