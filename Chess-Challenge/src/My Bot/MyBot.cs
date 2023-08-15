@@ -10,7 +10,6 @@ using ChessChallenge.API;
 
 public class MyBot : IChessBot
 {
-
     private Board board;
 
     private Timer timer;
@@ -169,11 +168,12 @@ public class MyBot : IChessBot
         Array.Sort(scores, legalMoves);
 
         Move localBestMove = Move.NullMove;
-        foreach (var move in legalMoves)
+        for (int i = 0; i < legalMoves.Length; ++i)
         {
+            Move move = legalMoves[i];
             int newDepth = remainingDepth - 1;
             board.MakeMove(move);
-            if (move == ttMove) // pvs like this is -7 +- 20 elo after 1000 games; adding inQsearch || ... doesn't change that
+            if (i == 0) // pvs like this is -7 +- 20 elo after 1000 games; adding inQsearch || ... doesn't change that, nor does move == ttMove
             {
                 score = -negamax(newDepth, -beta, -alpha, ply + 1);
             }
@@ -182,7 +182,14 @@ public class MyBot : IChessBot
 #if PRINT_DEBUG_INFO
                 ++pvsTryCtr;
 #endif
-                score = -negamax(newDepth, -alpha - 1, -alpha, ply + 1);
+                // testing ongoing, most conditions seem like they make sense but don't add elo. Maybe implement killers first?
+                // !isRoot seems to result in a small improvement, at least. So far, reducing pv nodes less seems to lose elo
+                int reduction =
+                    i > 12 && remainingDepth > 3 && !isRoot && !inCheck &&
+                    (int)move.MovePieceType >= (int)move.CapturePieceType
+                        ? /*isPvNode ? 1 :*/ 2
+                        : 0;
+                score = -negamax(newDepth - reduction, -alpha - 1, -alpha, ply + 1);
                 if (alpha < score && score < beta)
                 {
 #if PRINT_DEBUG_INFO

@@ -14,7 +14,7 @@ namespace ChessChallenge.Example
 
     public class EvilBot : IChessBot
     {
-
+        
     private Board board;
 
     private Timer timer;
@@ -33,6 +33,20 @@ namespace ChessChallenge.Example
     // (it also matters for quiescent nodes but it's difficult to count non-leaf quiescent nodes and they don't use the TT, would skew results)
     long parentOfInnerNodeCtr;
     long parentOfInnerNodeBetaCutoffCtr;
+    long pvsTryCtr;
+    long pvsRetryCtr;
+
+    void printPvs()
+    {
+        var move = ttMoves[board.ZobristKey & 0x1ff_ffff];
+        if (board.GetLegalMoves().Contains(move))
+        {
+            Console.WriteLine(move);
+            board.MakeMove(move);
+            printPvs();
+            board.UndoMove(move);
+        }
+    }
 #endif
 
     #region compresto
@@ -92,6 +106,7 @@ namespace ChessChallenge.Example
         Console.WriteLine("All nodes: " + allNodeCtr + ", non quiescent: " + nonQuiescentNodeCtr + ", beta cutoff: " + betaCutoffCtr
             + ", percent cutting (higher is better): " + (100.0 * betaCutoffCtr / allNodeCtr).ToString("0.0")
             + ", percent cutting for parents of inner nodes: " + (100.0 * parentOfInnerNodeBetaCutoffCtr / parentOfInnerNodeCtr).ToString("0.0"));
+        Console.WriteLine("Tried PVS {0} times, retried {1} times ({2} percent)", pvsTryCtr, pvsRetryCtr, 100.0 * pvsRetryCtr / pvsTryCtr);
         Console.WriteLine("NPS: {0}k", (allNodeCtr / (double)timer.MillisecondsElapsedThisTurn).ToString("0.0"));
         Console.WriteLine("Time:{0} of {1} ms, remaining {2}", timer.MillisecondsElapsedThisTurn, timer.GameStartTimeMilliseconds, timer.MillisecondsRemaining);
         Console.WriteLine("PV: ");
@@ -101,6 +116,8 @@ namespace ChessChallenge.Example
         betaCutoffCtr = 0;
         parentOfInnerNodeCtr = 0;
         parentOfInnerNodeBetaCutoffCtr = 0;
+        pvsTryCtr = 0;
+        pvsRetryCtr = 0;
 #endif
 
         return bestRootMove;
@@ -117,12 +134,14 @@ namespace ChessChallenge.Example
 
         // Using stackalloc doesn't gain elo
         bool isRoot = ply == 0,
-            inQsearch = remainingDepth <= 0;
+            inQsearch = remainingDepth <= 0,
+            isPvNode = alpha + 1 < beta;
         var legalMoves = board.GetLegalMoves(inQsearch);
         int numMoves = legalMoves.Length,
             bestScore = -32_000,
             originalAlpha = alpha,
-            standPat = eval();
+            standPat = eval(),
+            score;
         // calculating IsInCheck() before GetLegalMoves() loses very approx. 10 elo due to extra work
         bool inCheck = board.IsInCheck();
 
@@ -154,11 +173,33 @@ namespace ChessChallenge.Example
         Array.Sort(scores, legalMoves);
 
         Move localBestMove = Move.NullMove;
-        foreach (var move in legalMoves)
+        for (int i = 0; i < legalMoves.Length; ++i)
         {
+            Move move = legalMoves[i];
             int newDepth = remainingDepth - 1;
             board.MakeMove(move);
-            int score = -negamax(newDepth, -beta, -alpha, ply + 1);
+            if (i == 0) // this is -7 +- 20 elo after 1000 games; adding inQsearch || ... doesn't change that, nor does move == ttMove
+            {
+                score = -negamax(newDepth, -beta, -alpha, ply + 1);
+            }
+            else
+            {
+#if PRINT_DEBUG_INFO
+                ++pvsTryCtr;
+#endif
+                // testing ongoing, most conditions seem like they make sense but don't add elo. Maybe implement killers first?
+                // !isRoot seems to result in a small improvement, at least - TODO: Test pv node
+                bool doLmr = i > 4 && remainingDepth > 3 && !isRoot && !inCheck && (int)move.MovePieceType >= (int)move.CapturePieceType;
+                score = -negamax(doLmr ? newDepth - 2 : newDepth, -alpha - 1, -alpha, ply + 1);
+                if (alpha < score && score < beta)
+                {
+#if PRINT_DEBUG_INFO
+                    ++pvsRetryCtr;
+#endif
+                    score = -negamax(newDepth, -beta, -alpha, ply + 1);
+                }
+            }
+
             board.UndoMove(move);
 
             if (shouldStopThinking())
@@ -250,7 +291,6 @@ namespace ChessChallenge.Example
         // }
         // return res;
     }
-
     }
 
 }
