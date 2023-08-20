@@ -13,10 +13,13 @@ public class MyBot : IChessBot
     private Board board;
 
     private Timer timer;
+    // TODO: By defining all methods inside Think, member variables become unnecessary
 
     // 1 << 25 entries (without the pesto values, it would technically be possible to store exactly 1 << 26 Moves with 4 byte per Move)
     // the tt move ordering alone gained almost 400 elo
-    Move[] ttMoves =  new Move[0x200_0000];
+    private Move[] ttMoves =  new Move[0x200_0000];
+
+    private Move[] killers = new Move[65536];
 
     private Move bestRootMove;
 
@@ -83,40 +86,40 @@ public class MyBot : IChessBot
     }
 
 
-    public Move Think(Board theBoard, Timer theTimer)
-    {
-        board = theBoard;
-        timer = theTimer;
-
-        // starting with depth 0 wouldn't only be useless but also incorrect due to assumptions in negamax
-        for (int depth = 1; depth++ < 50 && !shouldStopThinking();)
+        public Move Think(Board theBoard, Timer theTimer)
         {
-            int score = negamax(depth, -30_000, 30_000, 0);
-#if PRINT_DEBUG_INFO
-            Console.WriteLine("Depth {0}, score {1}, best move {2}", depth, score, bestRootMove);
-#endif
+            board = theBoard;
+            timer = theTimer;
+
+            // starting with depth 0 wouldn't only be useless but also incorrect due to assumptions in negamax
+            for (int depth = 1; depth++ < 50 && !shouldStopThinking();)
+            {
+                int score = negamax(depth, -30_000, 30_000, 0);
+    #if PRINT_DEBUG_INFO
+                Console.WriteLine("Depth {0}, score {1}, best move {2}", depth, score, bestRootMove);
+    #endif
+            }
+
+    #if PRINT_DEBUG_INFO
+            Console.WriteLine("All nodes: " + allNodeCtr + ", non quiescent: " + nonQuiescentNodeCtr + ", beta cutoff: " + betaCutoffCtr
+                + ", percent cutting (higher is better): " + (100.0 * betaCutoffCtr / allNodeCtr).ToString("0.0")
+                + ", percent cutting for parents of inner nodes: " + (100.0 * parentOfInnerNodeBetaCutoffCtr / parentOfInnerNodeCtr).ToString("0.0"));
+            Console.WriteLine("Tried PVS {0} times, retried {1} times ({2} percent)", pvsTryCtr, pvsRetryCtr, 100.0 * pvsRetryCtr / pvsTryCtr);
+            Console.WriteLine("NPS: {0}k", (allNodeCtr / (double)timer.MillisecondsElapsedThisTurn).ToString("0.0"));
+            Console.WriteLine("Time:{0} of {1} ms, remaining {2}", timer.MillisecondsElapsedThisTurn, timer.GameStartTimeMilliseconds, timer.MillisecondsRemaining);
+            Console.WriteLine("PV: ");
+            Console.WriteLine();
+            allNodeCtr = 0;
+            nonQuiescentNodeCtr = 0;
+            betaCutoffCtr = 0;
+            parentOfInnerNodeCtr = 0;
+            parentOfInnerNodeBetaCutoffCtr = 0;
+            pvsTryCtr = 0;
+            pvsRetryCtr = 0;
+    #endif
+
+            return bestRootMove;
         }
-
-#if PRINT_DEBUG_INFO
-        Console.WriteLine("All nodes: " + allNodeCtr + ", non quiescent: " + nonQuiescentNodeCtr + ", beta cutoff: " + betaCutoffCtr
-            + ", percent cutting (higher is better): " + (100.0 * betaCutoffCtr / allNodeCtr).ToString("0.0")
-            + ", percent cutting for parents of inner nodes: " + (100.0 * parentOfInnerNodeBetaCutoffCtr / parentOfInnerNodeCtr).ToString("0.0"));
-        Console.WriteLine("Tried PVS {0} times, retried {1} times ({2} percent)", pvsTryCtr, pvsRetryCtr, 100.0 * pvsRetryCtr / pvsTryCtr);
-        Console.WriteLine("NPS: {0}k", (allNodeCtr / (double)timer.MillisecondsElapsedThisTurn).ToString("0.0"));
-        Console.WriteLine("Time:{0} of {1} ms, remaining {2}", timer.MillisecondsElapsedThisTurn, timer.GameStartTimeMilliseconds, timer.MillisecondsRemaining);
-        Console.WriteLine("PV: ");
-        Console.WriteLine();
-        allNodeCtr = 0;
-        nonQuiescentNodeCtr = 0;
-        betaCutoffCtr = 0;
-        parentOfInnerNodeCtr = 0;
-        parentOfInnerNodeBetaCutoffCtr = 0;
-        pvsTryCtr = 0;
-        pvsRetryCtr = 0;
-#endif
-
-        return bestRootMove;
-    }
 
 
     int negamax(int remainingDepth, int alpha, int beta, int ply)
@@ -140,7 +143,6 @@ public class MyBot : IChessBot
         // calculating IsInCheck() before GetLegalMoves() loses very approx. 10 elo due to extra work
         bool inCheck = board.IsInCheck();
 
-
         // replacing those functions with legalMoves.Length == 0 checks (plus repetition detection, insufficient material) didn't gain elo, TODO: Retest eventually
         if (board.IsInCheckmate())
             return ply - 30_000; // being checkmated later is better (as is checkmating earlier)
@@ -163,7 +165,8 @@ public class MyBot : IChessBot
         for (int i = 0; i < numMoves; i++)
         {
             Move move = legalMoves[i];
-            scores[i] = move == ttMove ? -10_000 : move.IsCapture ? (int)move.MovePieceType - (int)move.CapturePieceType * 100 : 0;
+            scores[i] = move == ttMove ? -100_000 : move.IsCapture ? (int)move.MovePieceType - (int)move.CapturePieceType * 1000 :
+                move == killers[2 * ply] || move == killers[2 * ply + 1] ? -100 : 0;
         }
         Array.Sort(scores, legalMoves);
 
@@ -182,13 +185,18 @@ public class MyBot : IChessBot
 #if PRINT_DEBUG_INFO
                 ++pvsTryCtr;
 #endif
-                // testing ongoing, most conditions seem like they make sense but don't add elo. Maybe implement killers first?
+                // testing ongoing, most conditions seem like they make sense but don't add elo.
                 // !isRoot seems to result in a small improvement, at least. So far, reducing pv nodes less seems to lose elo
-                int reduction =
-                    i > 12 && remainingDepth > 3 && !isRoot && !inCheck &&
-                    (int)move.MovePieceType >= (int)move.CapturePieceType
-                        ? /*isPvNode ? 1 :*/ 2
-                        : 0;
+                int reduction = 0;
+                if (i >= (isPvNode ? 5 : 3)
+                    && remainingDepth > 3
+                    && !move.IsCapture
+                    && !inCheck)
+                {
+                    reduction = 3; // TODO: Once the engine is better, test with viri values: (int)(0.77 + Math.Log(remainingDepth) * Math.Log(i) / 2.36);
+                    reduction -= isPvNode ? 1 : 0;
+                    reduction = Math.Clamp(reduction, 0, remainingDepth - 2);
+                }
                 score = -negamax(newDepth - reduction, -alpha - 1, -alpha, ply + 1);
                 if (alpha < score && score < beta)
                 {
@@ -215,6 +223,14 @@ public class MyBot : IChessBot
                     ++betaCutoffCtr;
                     if (remainingDepth > 1) ++parentOfInnerNodeBetaCutoffCtr;
 #endif
+                    // killer heuristic gives 27 +- 20 elo, using two entries gives 7.5 +- 14 elo 
+                    // checking that move != killers[2 * ply] doesn't seem to gain elo at all after 4000 games
+                    if (!move.IsCapture && move != killers[2 * ply])
+                    {
+                        killers[2 * ply + 1] = killers[2 * ply];
+                        killers[2 * ply] = move;
+                    }
+
                     break;
                 }
             }
