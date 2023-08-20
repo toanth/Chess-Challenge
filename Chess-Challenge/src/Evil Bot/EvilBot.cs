@@ -14,15 +14,20 @@ namespace ChessChallenge.Example
 
     public class EvilBot : IChessBot
     {
+        
+    
     private Board board;
 
     private Timer timer;
+    // TODO: By defining all methods inside Think, member variables become unnecessary
 
     // 1 << 25 entries (without the pesto values, it would technically be possible to store exactly 1 << 26 Moves with 4 byte per Move)
     // the tt move ordering alone gained almost 400 elo
     private Move[] ttMoves =  new Move[0x200_0000];
 
     private Move[] killers = new Move[65536];
+
+    private int[,,] history = new int[2, 7, 64];
 
     private Move bestRootMove;
 
@@ -94,6 +99,16 @@ namespace ChessChallenge.Example
             board = theBoard;
             timer = theTimer;
 
+            for (int stm = 0; stm <= 1; ++stm)
+            {
+                for (int piece = 0; piece < 7; ++piece)
+                {
+                    for (int square = 0; square < 64; ++square)
+                    {
+                        history[stm, piece, square] /= 8;
+                    }
+                }
+            }
             // starting with depth 0 wouldn't only be useless but also incorrect due to assumptions in negamax
             for (int depth = 1; depth++ < 50 && !shouldStopThinking();)
             {
@@ -168,8 +183,9 @@ namespace ChessChallenge.Example
         for (int i = 0; i < numMoves; i++)
         {
             Move move = legalMoves[i];
-            scores[i] = move == ttMove ? -100_000 : move.IsCapture ? (int)move.MovePieceType - (int)move.CapturePieceType * 1000 :
-                move == killers[2 * ply] || move == killers[2 * ply + 1] ? -100 : 0;
+            scores[i] = move == ttMove ? -1_000_000_000 : move.IsCapture ? (int)move.MovePieceType - (int)move.CapturePieceType * 1_000_000 :
+                move == killers[2 * ply] || move == killers[2 * ply + 1] ? -100_000 :
+                -history[board.IsWhiteToMove ? 1 : 0, (int)move.MovePieceType, move.TargetSquare.Index];
         }
         Array.Sort(scores, legalMoves);
 
@@ -191,19 +207,13 @@ namespace ChessChallenge.Example
                 // testing ongoing, most conditions seem like they make sense but don't add elo.
                 // !isRoot seems to result in a small improvement, at least. So far, reducing pv nodes less seems to lose elo
                 int reduction = 0;
-                    // i > 12 && remainingDepth > 3 && !isRoot && !inCheck &&
-                    // (int)move.MovePieceType >= (int)move.CapturePieceType
-                    //     ? /*isPvNode ? 1 :*/ 2
-                    //     : 0;
-                // this lmr formula is closely based on the one from A_randomnoob, which in turn uses viridithas values
                 if (i >= (isPvNode ? 5 : 3)
                     && remainingDepth > 3
                     && !move.IsCapture
-                    && !move.IsPromotion
                     && !inCheck)
                 {
-                    reduction = (int)(0.77 + Math.Log(remainingDepth) * Math.Log(i) / 2.36);
-                    reduction -= (isPvNode ? 1 : 0) + (board.IsInCheck() ? 1 : 0);
+                    reduction = 3; // TODO: Once the engine is better, test with viri values: (int)(0.77 + Math.Log(remainingDepth) * Math.Log(i) / 2.36);
+                    reduction -= isPvNode ? 1 : 0;
                     reduction = Math.Clamp(reduction, 0, remainingDepth - 2);
                 }
                 score = -negamax(newDepth - reduction, -alpha - 1, -alpha, ply + 1);
@@ -238,6 +248,8 @@ namespace ChessChallenge.Example
                     {
                         killers[2 * ply + 1] = killers[2 * ply];
                         killers[2 * ply] = move;
+                        history[board.IsWhiteToMove ? 1 : 0, (int)move.MovePieceType, move.TargetSquare.Index]
+                            += remainingDepth * remainingDepth;
                     }
 
                     break;
@@ -317,5 +329,4 @@ namespace ChessChallenge.Example
     }
     
     }
-
 }
