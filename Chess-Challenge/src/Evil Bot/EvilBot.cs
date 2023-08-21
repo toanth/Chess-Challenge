@@ -15,7 +15,6 @@ namespace ChessChallenge.Example
     public class EvilBot : IChessBot
     {
         
-    
     private Board board;
 
     private Timer timer;
@@ -176,6 +175,12 @@ namespace ChessChallenge.Example
             if (alpha < standPat) alpha = standPat;
         }
 
+        int margin = 64 * remainingDepth;
+        if (!isPvNode && !inCheck && !inQsearch && remainingDepth < 5 && standPat >= beta + margin)
+        {
+            return standPat;
+        }
+        
         ref Move ttMove = ref ttMoves[board.ZobristKey & 0x1ff_ffff];
 
         // using this manual for loop and Array.Sort gained about 50 elo compared to OrderByDescending
@@ -190,12 +195,12 @@ namespace ChessChallenge.Example
         Array.Sort(scores, legalMoves);
 
         Move localBestMove = Move.NullMove;
-        for (int i = 0; i < legalMoves.Length; ++i)
+        for (int moveIdx = 0; moveIdx < legalMoves.Length; ++moveIdx)
         {
-            Move move = legalMoves[i];
+            Move move = legalMoves[moveIdx];
             int newDepth = remainingDepth - 1;
             board.MakeMove(move);
-            if (i == 0) // pvs like this is -7 +- 20 elo after 1000 games; adding inQsearch || ... doesn't change that, nor does move == ttMove
+            if (moveIdx == 0) // pvs like this is -7 +- 20 elo after 1000 games; adding inQsearch || ... doesn't change that, nor does move == ttMove
             {
                 score = -negamax(newDepth, -beta, -alpha, ply + 1);
             }
@@ -207,7 +212,7 @@ namespace ChessChallenge.Example
                 // testing ongoing, most conditions seem like they make sense but don't add elo.
                 // !isRoot seems to result in a small improvement, at least. So far, reducing pv nodes less seems to lose elo
                 int reduction = 0;
-                if (i >= (isPvNode ? 5 : 3)
+                if (moveIdx >= (isPvNode ? 5 : 3)
                     && remainingDepth > 3
                     && !move.IsCapture
                     && !inCheck)
@@ -248,6 +253,7 @@ namespace ChessChallenge.Example
                     {
                         killers[2 * ply + 1] = killers[2 * ply];
                         killers[2 * ply] = move;
+                        // gravity didn't gain (TODO: Retest later when the engine is better), but history still gained quite a bit
                         history[board.IsWhiteToMove ? 1 : 0, (int)move.MovePieceType, move.TargetSquare.Index]
                             += remainingDepth * remainingDepth;
                     }

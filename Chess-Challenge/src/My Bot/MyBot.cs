@@ -170,6 +170,12 @@ public class MyBot : IChessBot
             if (alpha < standPat) alpha = standPat;
         }
 
+        int margin = 64 * remainingDepth;
+        if (!isPvNode && !inCheck && !inQsearch && remainingDepth < 5 && standPat >= beta + margin)
+        {
+            return standPat;
+        }
+        
         ref Move ttMove = ref ttMoves[board.ZobristKey & 0x1ff_ffff];
 
         // using this manual for loop and Array.Sort gained about 50 elo compared to OrderByDescending
@@ -242,6 +248,7 @@ public class MyBot : IChessBot
                     {
                         killers[2 * ply + 1] = killers[2 * ply];
                         killers[2 * ply] = move;
+                        // gravity didn't gain (TODO: Retest later when the engine is better), but history still gained quite a bit
                         history[board.IsWhiteToMove ? 1 : 0, (int)move.MovePieceType, move.TargetSquare.Index]
                             += remainingDepth * remainingDepth;
                     }
