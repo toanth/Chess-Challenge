@@ -111,7 +111,7 @@ namespace ChessChallenge.Example
             // starting with depth 0 wouldn't only be useless but also incorrect due to assumptions in negamax
             for (int depth = 1; depth++ < 50 && !shouldStopThinking();)
             {
-                int score = negamax(depth, -30_000, 30_000, 0);
+                int score = negamax(depth, -30_000, 30_000, 0, false);
     #if PRINT_DEBUG_INFO
                 Console.WriteLine("Depth {0}, score {1}, best move {2}", depth, score, bestRootMove);
     #endif
@@ -139,7 +139,7 @@ namespace ChessChallenge.Example
         }
 
 
-    int negamax(int remainingDepth, int alpha, int beta, int ply)
+    int negamax(int remainingDepth, int alpha, int beta, int ply, bool allowNmp)
     {
 #if PRINT_DEBUG_INFO
         ++allNodeCtr;
@@ -180,6 +180,18 @@ namespace ChessChallenge.Example
         {
             return standPat;
         }
+
+        // Null move pruning. TODO: Avoid zugzwang by testing phase?
+        if (!isPvNode && remainingDepth >= 4 && allowNmp && standPat >= beta && board.TrySkipTurn())
+        {
+            int reduction = 2 + remainingDepth / 4;
+            int nullScore = -negamax(remainingDepth - reduction , -beta, -alpha, ply + 1, false);
+            board.UndoSkipTurn();
+            if (nullScore >= beta)
+            {
+                return nullScore;
+            }
+        }
         
         ref Move ttMove = ref ttMoves[board.ZobristKey & 0x1ff_ffff];
 
@@ -202,7 +214,7 @@ namespace ChessChallenge.Example
             board.MakeMove(move);
             if (moveIdx == 0) // pvs like this is -7 +- 20 elo after 1000 games; adding inQsearch || ... doesn't change that, nor does move == ttMove
             {
-                score = -negamax(newDepth, -beta, -alpha, ply + 1);
+                score = -negamax(newDepth, -beta, -alpha, ply + 1, true);
             }
             else
             {
@@ -221,13 +233,13 @@ namespace ChessChallenge.Example
                     reduction -= isPvNode ? 1 : 0;
                     reduction = Math.Clamp(reduction, 0, remainingDepth - 2);
                 }
-                score = -negamax(newDepth - reduction, -alpha - 1, -alpha, ply + 1);
+                score = -negamax(newDepth - reduction, -alpha - 1, -alpha, ply + 1, true);
                 if (alpha < score && score < beta)
                 {
 #if PRINT_DEBUG_INFO
                     ++pvsRetryCtr;
 #endif
-                    score = -negamax(newDepth, -beta, -alpha, ply + 1);
+                    score = -negamax(newDepth, -beta, -alpha, ply + 1, true);
                 }
             }
 
