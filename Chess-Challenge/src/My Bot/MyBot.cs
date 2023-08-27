@@ -210,7 +210,7 @@ public class MyBot : IChessBot
             board.MakeMove(move);
             if (moveIdx == 0) // pvs like this is -7 +- 20 elo after 1000 games; adding inQsearch || ... doesn't change that, nor does move == ttMove
             {
-                score = -negamax(newDepth, -beta, -alpha, ply + 1, true);
+                score = -negamax(newDepth + (board.IsInCheck() ? 1: 0), -beta, -alpha, ply + 1, true);
             }
             else
             {
