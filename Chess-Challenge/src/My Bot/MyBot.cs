@@ -4,9 +4,12 @@
 #endif
 
 using System;
+//using System.Collections;
 using System.Linq;
 using ChessChallenge.API;
 
+
+// King Gᴀᴍʙᴏᴛ, A Joke Bot
 
 public class MyBot : IChessBot
 {
@@ -14,6 +17,7 @@ public class MyBot : IChessBot
 
     private Timer timer;
     // TODO: By defining all methods inside Think, member variables become unnecessary
+
 
     // 1 << 25 entries (without the pesto values, it would technically be possible to store exactly 1 << 26 Moves with 4 byte per Move)
     // the tt move ordering alone gained almost 400 elo
@@ -88,23 +92,27 @@ public class MyBot : IChessBot
     }
 
 
-        public Move Think(Board theBoard, Timer theTimer)
-        {
-            board = theBoard;
-            timer = theTimer;
+    public Move Think(Board theBoard, Timer theTimer)
+    {
+        board = theBoard;
+        timer = theTimer;
 
-            for (int stm = 0; stm <= 1; ++stm)
-            {
-                for (int piece = 0; piece < 7; ++piece)
-                {
-                    for (int square = 0; square < 64; ++square)
-                    {
-                        history[stm, piece, square] /= 8;
-                    }
-                }
-            }
-            // starting with depth 0 wouldn't only be useless but also incorrect due to assumptions in negamax
-            for (int depth = 1; depth++ < 50 && !shouldStopThinking();)
+
+        Array.Clear(history, 0, history.Length);
+        //((IList)history).Clear(); // saves 2 tokens here but requires using System.Collection, so + 2 tokens overall
+
+        //for (int stm = 0; stm <= 1; ++stm)
+        //{
+        //    for (int piece = 0; piece < 7; ++piece)
+        //    {
+        //        for (int square = 0; square < 64; ++square)
+        //        {
+        //            history[stm, piece, square] /= 8;
+        //        }
+        //    }
+        //}
+        // starting with depth 0 wouldn't only be useless but also incorrect due to assumptions in negamax
+        for (int depth = 1; depth++ < 50 && !shouldStopThinking();)
             {
                 int score = negamax(depth, -30_000, 30_000, 0, false);
     #if PRINT_DEBUG_INFO
@@ -168,6 +176,7 @@ public class MyBot : IChessBot
             if (alpha < standPat) alpha = standPat;
         }
 
+        // reverse futility probing
         int margin = 64 * remainingDepth;
         if (!isPvNode && !inCheck && !inQsearch && remainingDepth < 5 && standPat >= beta + margin)
         {
@@ -295,7 +304,12 @@ public class MyBot : IChessBot
                     index = square ^ (stm ? 56 : 0) + 64 * piece;
                     // The (47 << piece) trick doesn't really save all that much at the moment, but...
                     // ...TODO: By storing mg tables first, then eg tables, this code can be reused for mg and eg calculation, potentially saving a few tokens
-                    mg += pesto[index] + (47 << piece) + pesto[piece + 776];
+                    if (piece == 5 /*&& stm == us*/)
+                    {
+                        int rank = square >> 3;
+                        mg += 32 * (stm ? rank : 7 - rank);
+                    } else
+                        mg += pesto[index] + (47 << piece) + pesto[piece + 776];
                     eg += pesto[index + 384] + (47 << piece) + pesto[piece + 782];
 
                     //                    // passed pawns detection, doesn't increase elo
