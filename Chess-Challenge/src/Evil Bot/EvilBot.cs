@@ -14,21 +14,21 @@ namespace ChessChallenge.Example
 
     public class EvilBot : IChessBot
     {
-        
-    private Board board;
 
-    private Timer timer;
-    // TODO: By defining all methods inside Think, member variables become unnecessary
+        private Board board;
 
-    // 1 << 25 entries (without the pesto values, it would technically be possible to store exactly 1 << 26 Moves with 4 byte per Move)
-    // the tt move ordering alone gained almost 400 elo
-    private Move[] ttMoves =  new Move[0x200_0000];
+        private Timer timer;
+        // TODO: By defining all methods inside Think, member variables become unnecessary
 
-    private Move[] killers = new Move[65536];
+        // 1 << 25 entries (without the pesto values, it would technically be possible to store exactly 1 << 26 Moves with 4 byte per Move)
+        // the tt move ordering alone gained almost 400 elo
+        private Move[] ttMoves = new Move[0x200_0000];
 
-    private int[,,] history = new int[2, 7, 64];
+        private Move[] killers = new Move[65536];
 
-    private Move bestRootMove;
+        private int[,,] history = new int[2, 7, 64];
+
+        private Move bestRootMove;
 
 #if PRINT_DEBUG_INFO
     long allNodeCtr;
@@ -54,10 +54,10 @@ namespace ChessChallenge.Example
     }
 #endif
 
-    #region compresto
+        #region compresto
 
-    private static ulong[] compresto =
-    {
+        private static ulong[] compresto =
+        {
             2531906049332683555, 1748981496244382085, 1097852895337720349, 879379754340921365, 733287618436800776,
             1676506906360749833, 957361353080644096, 2531906049332683555, 1400370699429487872, 7891921272903718197,
             12306085787436563023, 10705271422119415669, 8544333011004326513, 7968995920879187303, 7741846628066281825,
@@ -80,17 +80,17 @@ namespace ChessChallenge.Example
             2247925333337909269, 17213489408, 6352120424995714304, 982348882
         };
 
-    private byte[] pesto = compresto.SelectMany(BitConverter.GetBytes).ToArray();
+        private byte[] pesto = compresto.SelectMany(BitConverter.GetBytes).ToArray();
 
-    #endregion
+        #endregion
 
 
-    bool shouldStopThinking() // TODO: Can we save tokens by using properties instead of methods?
-    {
-        // The / 32 makes the most sense when the game last for another 32 moves. Currently, poor bot performance causes unnecesarily
-        // long games in winning positions but as we improve our engine we should see less time trouble overall.
-        return timer.MillisecondsElapsedThisTurn > timer.MillisecondsRemaining / 32;
-    }
+        bool shouldStopThinking() // TODO: Can we save tokens by using properties instead of methods?
+        {
+            // The / 32 makes the most sense when the game last for another 32 moves. Currently, poor bot performance causes unnecesarily
+            // long games in winning positions but as we improve our engine we should see less time trouble overall.
+            return timer.MillisecondsElapsedThisTurn > timer.MillisecondsRemaining / 32;
+        }
 
 
         public Move Think(Board theBoard, Timer theTimer)
@@ -112,12 +112,12 @@ namespace ChessChallenge.Example
             for (int depth = 1; depth++ < 50 && !shouldStopThinking();)
             {
                 int score = negamax(depth, -30_000, 30_000, 0, false);
-    #if PRINT_DEBUG_INFO
+#if PRINT_DEBUG_INFO
                 Console.WriteLine("Depth {0}, score {1}, best move {2}", depth, score, bestRootMove);
-    #endif
+#endif
             }
 
-    #if PRINT_DEBUG_INFO
+#if PRINT_DEBUG_INFO
             Console.WriteLine("All nodes: " + allNodeCtr + ", non quiescent: " + nonQuiescentNodeCtr + ", beta cutoff: " + betaCutoffCtr
                 + ", percent cutting (higher is better): " + (100.0 * betaCutoffCtr / allNodeCtr).ToString("0.0")
                 + ", percent cutting for parents of inner nodes: " + (100.0 * parentOfInnerNodeBetaCutoffCtr / parentOfInnerNodeCtr).ToString("0.0"));
@@ -133,218 +133,219 @@ namespace ChessChallenge.Example
             parentOfInnerNodeBetaCutoffCtr = 0;
             pvsTryCtr = 0;
             pvsRetryCtr = 0;
-    #endif
+#endif
 
             return bestRootMove;
         }
 
 
-    int negamax(int remainingDepth, int alpha, int beta, int ply, bool allowNmp)
-    {
+        int negamax(int remainingDepth, int alpha, int beta, int ply, bool allowNmp)
+        {
 #if PRINT_DEBUG_INFO
         ++allNodeCtr;
         if (remainingDepth > 0) ++nonQuiescentNodeCtr;
         if (remainingDepth > 1) ++parentOfInnerNodeCtr;
 #endif
 
-        // Using stackalloc doesn't gain elo
-        bool isRoot = ply == 0,
-            inQsearch = remainingDepth <= 0,
-            isPvNode = alpha + 1 < beta;
-        var legalMoves = board.GetLegalMoves(inQsearch);
-        int numMoves = legalMoves.Length,
-            bestScore = -32_000,
-            originalAlpha = alpha,
-            standPat = eval(),
-            score;
-        // calculating IsInCheck() before GetLegalMoves() loses very approx. 10 elo due to extra work
-        bool inCheck = board.IsInCheck();
+            // Using stackalloc doesn't gain elo
+            bool isRoot = ply == 0,
+                inQsearch = remainingDepth <= 0,
+                isPvNode = alpha + 1 < beta;
+            var legalMoves = board.GetLegalMoves(inQsearch);
+            int numMoves = legalMoves.Length,
+                bestScore = -32_000,
+                originalAlpha = alpha,
+                standPat = eval(),
+                score;
+            // calculating IsInCheck() before GetLegalMoves() loses very approx. 10 elo due to extra work
+            bool inCheck = board.IsInCheck();
 
-        // replacing those functions with legalMoves.Length == 0 checks (plus repetition detection, insufficient material) didn't gain elo, TODO: Retest eventually
-        if (board.IsInCheckmate())
-            return ply - 30_000; // being checkmated later is better (as is checkmating earlier)
-        if (board.IsDraw())
-            return 0;
-        if (numMoves == 0) // can only happen in qsearch for now
-            return standPat;
+            // replacing those functions with legalMoves.Length == 0 checks (plus repetition detection, insufficient material) didn't gain elo, TODO: Retest eventually
+            if (board.IsInCheckmate())
+                return ply - 30_000; // being checkmated later is better (as is checkmating earlier)
+            if (board.IsDraw())
+                return 0;
+            if (numMoves == 0) // can only happen in qsearch for now
+                return standPat;
 
-        if (inQsearch)
-        {
-            bestScore = standPat;
-            if (standPat >= beta) return standPat;
-            if (alpha < standPat) alpha = standPat;
-        }
-
-        int margin = 64 * remainingDepth;
-        if (!isPvNode && !inCheck && !inQsearch && remainingDepth < 5 && standPat >= beta + margin)
-        {
-            return standPat;
-        }
-
-        // Null move pruning. TODO: Avoid zugzwang by testing phase?
-        if (!isPvNode && remainingDepth >= 4 && allowNmp && standPat >= beta && board.TrySkipTurn())
-        {
-            int reduction = 2 + remainingDepth / 4;
-            int nullScore = -negamax(remainingDepth - reduction , -beta, -alpha, ply + 1, false);
-            board.UndoSkipTurn();
-            if (nullScore >= beta)
+            if (inQsearch)
             {
-                return nullScore;
+                bestScore = standPat;
+                if (standPat >= beta) return standPat;
+                if (alpha < standPat) alpha = standPat;
             }
-        }
-        
-        ref Move ttMove = ref ttMoves[board.ZobristKey & 0x1ff_ffff];
 
-        // using this manual for loop and Array.Sort gained about 50 elo compared to OrderByDescending
-        var scores = new int[numMoves];
-        for (int i = 0; i < numMoves; i++)
-        {
-            Move move = legalMoves[i];
-            scores[i] = move == ttMove ? -1_000_000_000 : move.IsCapture ? (int)move.MovePieceType - (int)move.CapturePieceType * 1_000_000 :
-                move == killers[2 * ply] || move == killers[2 * ply + 1] ? -100_000 :
-                -history[board.IsWhiteToMove ? 1 : 0, (int)move.MovePieceType, move.TargetSquare.Index];
-        }
-        Array.Sort(scores, legalMoves);
-
-        Move localBestMove = Move.NullMove;
-        for (int moveIdx = 0; moveIdx < legalMoves.Length; ++moveIdx)
-        {
-            Move move = legalMoves[moveIdx];
-            int newDepth = remainingDepth - 1;
-            board.MakeMove(move);
-            if (moveIdx == 0) // pvs like this is -7 +- 20 elo after 1000 games; adding inQsearch || ... doesn't change that, nor does move == ttMove
+            int margin = 64 * remainingDepth;
+            if (!isPvNode && !inCheck && !inQsearch && remainingDepth < 5 && standPat >= beta + margin)
             {
-                score = -negamax(newDepth, -beta, -alpha, ply + 1, true);
+                return standPat;
             }
-            else
+
+            // Null move pruning. TODO: Avoid zugzwang by testing phase?
+            if (!isPvNode && remainingDepth >= 4 && allowNmp && standPat >= beta && board.TrySkipTurn())
             {
+                int reduction = 3 + remainingDepth / 5;
+                // changing the ply by a large number doesn't seem to gain elo, even though this should prevent overwriting killer moves
+                int nullScore = -negamax(remainingDepth - reduction, -beta, -alpha, ply + 1, false);
+                board.UndoSkipTurn();
+                if (nullScore >= beta)
+                {
+                    return nullScore;
+                }
+            }
+
+            ref Move ttMove = ref ttMoves[board.ZobristKey & 0x1ff_ffff];
+
+            // using this manual for loop and Array.Sort gained about 50 elo compared to OrderByDescending
+            var scores = new int[numMoves];
+            for (int i = 0; i < numMoves; i++)
+            {
+                Move move = legalMoves[i];
+                scores[i] = move == ttMove ? -1_000_000_000 : move.IsCapture ? (int)move.MovePieceType - (int)move.CapturePieceType * 1_000_000 :
+                    move == killers[2 * ply] || move == killers[2 * ply + 1] ? -100_000 :
+                    -history[board.IsWhiteToMove ? 1 : 0, (int)move.MovePieceType, move.TargetSquare.Index];
+            }
+            Array.Sort(scores, legalMoves);
+
+
+            Move localBestMove = Move.NullMove;
+            for (int moveIdx = 0; moveIdx < legalMoves.Length; ++moveIdx)
+            {
+                Move move = legalMoves[moveIdx];
+                int newDepth = remainingDepth - 1;
+                board.MakeMove(move);
+                if (moveIdx == 0) // pvs like this is -7 +- 20 elo after 1000 games; adding inQsearch || ... doesn't change that, nor does move == ttMove
+                {
+                    score = -negamax(newDepth + (board.IsInCheck() ? 1 : 0), -beta, -alpha, ply + 1, true);
+                }
+                else
+                {
 #if PRINT_DEBUG_INFO
                 ++pvsTryCtr;
 #endif
-                // testing ongoing, most conditions seem like they make sense but don't add elo.
-                // !isRoot seems to result in a small improvement, at least. So far, reducing pv nodes less seems to lose elo
-                int reduction = 0;
-                if (moveIdx >= (isPvNode ? 5 : 3)
-                    && remainingDepth > 3
-                    && !move.IsCapture
-                    && !inCheck)
-                {
-                    reduction = 3; // TODO: Once the engine is better, test with viri values: (int)(0.77 + Math.Log(remainingDepth) * Math.Log(i) / 2.36);
-                    reduction -= isPvNode ? 1 : 0;
-                    reduction = Math.Clamp(reduction, 0, remainingDepth - 2);
-                }
-                score = -negamax(newDepth - reduction, -alpha - 1, -alpha, ply + 1, true);
-                if (alpha < score && score < beta)
-                {
+                    // testing ongoing, most conditions seem like they make sense but don't add elo.
+                    // !isRoot seems to result in a small improvement, at least. So far, reducing pv nodes less seems to lose elo
+                    int reduction = 0;
+                    if (moveIdx >= (isPvNode ? 5 : 3)
+                        && remainingDepth > 3
+                        && !move.IsCapture
+                        && !inCheck)
+                    {
+                        reduction = 3; // TODO: Once the engine is better, test with viri values: (int)(0.77 + Math.Log(remainingDepth) * Math.Log(i) / 2.36);
+                        reduction -= isPvNode ? 1 : 0;
+                        reduction = Math.Clamp(reduction, 0, remainingDepth - 2);
+                    }
+                    score = -negamax(newDepth - reduction, -alpha - 1, -alpha, ply + 1, true);
+                    if (alpha < score && score < beta)
+                    {
 #if PRINT_DEBUG_INFO
                     ++pvsRetryCtr;
 #endif
-                    score = -negamax(newDepth, -beta, -alpha, ply + 1, true);
+                        score = -negamax(newDepth, -beta, -alpha, ply + 1, true);
+                    }
                 }
-            }
 
-            board.UndoMove(move);
+                board.UndoMove(move);
 
-            if (shouldStopThinking())
-                return 12345; // the value won't be used, so use a canary to detect bugs
+                if (shouldStopThinking())
+                    return 12345; // the value won't be used, so use a canary to detect bugs
 
-            if (score > bestScore)
-            {
-                bestScore = score;
-                localBestMove = move;
-                alpha = Math.Max(alpha, score);
-                if (score >= beta)
+                if (score > bestScore)
                 {
+                    bestScore = score;
+                    localBestMove = move;
+                    alpha = Math.Max(alpha, score);
+                    if (score >= beta)
+                    {
 #if PRINT_DEBUG_INFO
                     ++betaCutoffCtr;
                     if (remainingDepth > 1) ++parentOfInnerNodeBetaCutoffCtr;
 #endif
-                    // killer heuristic gives 27 +- 20 elo, using two entries gives 7.5 +- 14 elo 
-                    // checking that move != killers[2 * ply] doesn't seem to gain elo at all after 4000 games
-                    if (!move.IsCapture && move != killers[2 * ply])
-                    {
-                        killers[2 * ply + 1] = killers[2 * ply];
-                        killers[2 * ply] = move;
-                        // gravity didn't gain (TODO: Retest later when the engine is better), but history still gained quite a bit
-                        history[board.IsWhiteToMove ? 1 : 0, (int)move.MovePieceType, move.TargetSquare.Index]
-                            += remainingDepth * remainingDepth;
+                        // killer heuristic gives 27 +- 20 elo, using two entries gives 7.5 +- 14 elo 
+                        // checking that move != killers[2 * ply] doesn't seem to gain elo at all after 4000 games
+                        if (!move.IsCapture && move != killers[2 * ply])
+                        {
+                            killers[2 * ply + 1] = killers[2 * ply];
+                            killers[2 * ply] = move;
+                            // gravity didn't gain (TODO: Retest later when the engine is better), but history still gained quite a bit
+                            history[board.IsWhiteToMove ? 1 : 0, (int)move.MovePieceType, move.TargetSquare.Index]
+                                += remainingDepth * remainingDepth;
+                        }
+
+                        break;
                     }
-
-                    break;
                 }
             }
+
+            if (isRoot) bestRootMove = localBestMove;
+            // not updating the tt move in qsearch gives close to 20 elo (with close to 20 elo error bounds, but meassured two times with 1000 games each)
+            if (!inQsearch)
+                ttMove = localBestMove;
+
+            return bestScore;
         }
 
-        if (isRoot) bestRootMove = localBestMove;
-        // not updating the tt move in qsearch gives close to 20 elo (with close to 20 elo error bounds, but meassured two times with 1000 games each)
-        if (!inQsearch)
-            ttMove = localBestMove;
 
-        return bestScore;
-    }
-
-
-    // for the time being, this is very closely based on JW's example bot (ie tier 2 bot)
-    int eval()
-    {
-        int phase = 0, mg = 0, eg = 0;
-        foreach (bool stm in new[] { true, false })
+        // for the time being, this is very closely based on JW's example bot (ie tier 2 bot)
+        int eval()
         {
-            for (var p = PieceType.None; ++p <= PieceType.King;)
+            int phase = 0, mg = 0, eg = 0;
+            foreach (bool stm in new[] { true, false })
             {
-                int piece = (int)p - 1, square, index; // square isn't necessary at this point, but useful for other evaluation features
-                ulong mask = board.GetPieceBitboard(p, stm);
-                while (mask != 0)
+                for (var p = PieceType.None; ++p <= PieceType.King;)
                 {
-                    phase += pesto[768 + piece];
-                    square = BitboardHelper.ClearAndGetIndexOfLSB(ref mask);
-                    index = square ^ (stm ? 56 : 0) + 64 * piece;
-                    // The (47 << piece) trick doesn't really save all that much at the moment, but...
-                    // ...TODO: By storing mg tables first, then eg tables, this code can be reused for mg and eg calculation, potentially saving a few tokens
-                    mg += pesto[index] + (47 << piece) + pesto[piece + 776];
-                    eg += pesto[index + 384] + (47 << piece) + pesto[piece + 782];
+                    int piece = (int)p - 1, square, index; // square isn't necessary at this point, but useful for other evaluation features
+                    ulong mask = board.GetPieceBitboard(p, stm);
+                    while (mask != 0)
+                    {
+                        phase += pesto[768 + piece];
+                        square = BitboardHelper.ClearAndGetIndexOfLSB(ref mask);
+                        index = square ^ (stm ? 56 : 0) + 64 * piece;
+                        // The (47 << piece) trick doesn't really save all that much at the moment, but...
+                        // ...TODO: By storing mg tables first, then eg tables, this code can be reused for mg and eg calculation, potentially saving a few tokens
+                        mg += pesto[index] + (47 << piece) + pesto[piece + 776];
+                        eg += pesto[index + 384] + (47 << piece) + pesto[piece + 782];
 
-                    //                    // passed pawns detection, doesn't increase elo
-                    //                    ulong fileMask = (((0x700ul << square % 8 >> 1) & 0xff00) * 0x1010101010101);
-                    //                    ulong passedPawnMask = (stm ? fileMask << (square & 0xf8) : fileMask >> (8 + (square & 0xf8 ^ 56)));
-                    //                    if (piece == 0 && (b.GetPieceBitboard(p, !stm) & passedPawnMask) == 0)
-                    //                    {
-                    //#if PRINT_DEBUG_INFO
-                    //                        BitboardHelper.VisualizeBitboard(passedPawnMask);
-                    //                        Console.WriteLine("Passed pawn: {0}", newSquare(square).ToString());
-                    //#endif
-                    //                        eg += (square ^ (stm ? 0 : 56)) / 8 * 20;
-                    //                    }
+                        //                    // passed pawns detection, doesn't increase elo
+                        //                    ulong fileMask = (((0x700ul << square % 8 >> 1) & 0xff00) * 0x1010101010101);
+                        //                    ulong passedPawnMask = (stm ? fileMask << (square & 0xf8) : fileMask >> (8 + (square & 0xf8 ^ 56)));
+                        //                    if (piece == 0 && (b.GetPieceBitboard(p, !stm) & passedPawnMask) == 0)
+                        //                    {
+                        //#if PRINT_DEBUG_INFO
+                        //                        BitboardHelper.VisualizeBitboard(passedPawnMask);
+                        //                        Console.WriteLine("Passed pawn: {0}", newSquare(square).ToString());
+                        //#endif
+                        //                        eg += (square ^ (stm ? 0 : 56)) / 8 * 20;
+                        //                    }
+                    }
                 }
+
+                // king safety: Is the king on a semi open file?
+                //+ (((b.GetPieceBitboard(PieceType.Pawn, !stm) >> b.GetKingSquare(stm).File) & 0x0001_0101_0101_0101) == 0 ? 0 : 50)
+                // king safety: Replace the king by a virtual queen and count the number of squares it can reach as a measure of how open the king is.
+                // This is a very crude approximation, but doesn't require too many tokens. (Scale by negative amount for endgame?)
+                //mg -= 7 * BitboardHelper.GetNumberOfSetBits(BitboardHelper.GetPieceAttacks(PieceType.Queen, b.GetKingSquare(stm), stm ? b.WhitePiecesBitboard : b.BlackPiecesBitboard, stm));
+                mg = -mg;
+                eg = -eg;
             }
 
-            // king safety: Is the king on a semi open file?
-            //+ (((b.GetPieceBitboard(PieceType.Pawn, !stm) >> b.GetKingSquare(stm).File) & 0x0001_0101_0101_0101) == 0 ? 0 : 50)
-            // king safety: Replace the king by a virtual queen and count the number of squares it can reach as a measure of how open the king is.
-            // This is a very crude approximation, but doesn't require too many tokens. (Scale by negative amount for endgame?)
-            //mg -= 7 * BitboardHelper.GetNumberOfSetBits(BitboardHelper.GetPieceAttacks(PieceType.Queen, b.GetKingSquare(stm), stm ? b.WhitePiecesBitboard : b.BlackPiecesBitboard, stm));
-            mg = -mg;
-            eg = -eg;
+            // mopup: Bring the king closer to the opponent's king when there are no more pawns and we are ahead in material. Doesn't gain a lot of elo.
+            //Square whiteKing = board.GetKingSquare(true), blackKing = board.GetKingSquare(false);
+            //if (phase < 7 && board.GetAllPieceLists()[0].Count + board.GetAllPieceLists()[6].Count == 0)
+            //    eg += (12 - Math.Abs(whiteKing.Rank - blackKing.Rank) + Math.Abs(whiteKing.File - blackKing.File)) * (eg > 300 ? 12 : eg < -300 ? -12 : 0);
+            // TODO: The bot still undervalues pawns in endgames, eg preferring a bishop to two pawns
+
+            return (mg * phase + eg * (24 - phase)) / (board.IsWhiteToMove ? 24 : -24);
+
+            // int res = (mg * phase + eg * (24 - phase)) / 24 * (b.IsWhiteToMove ? 1 : -1);
+            // int expected = Pesto.originalPestoEval(b);
+            // if (res != expected)
+            // {
+            //     Console.WriteLine("eval was {0}, should be {1}", res, expected);
+            //     Console.WriteLine(b.CreateDiagram());
+            //     Debug.Assert(false);
+            // }
+            // return res;
         }
-
-        // mopup: Bring the king closer to the opponent's king when there are no more pawns and we are ahead in material. Doesn't gain a lot of elo.
-        //Square whiteKing = board.GetKingSquare(true), blackKing = board.GetKingSquare(false);
-        //if (phase < 7 && board.GetAllPieceLists()[0].Count + board.GetAllPieceLists()[6].Count == 0)
-        //    eg += (12 - Math.Abs(whiteKing.Rank - blackKing.Rank) + Math.Abs(whiteKing.File - blackKing.File)) * (eg > 300 ? 12 : eg < -300 ? -12 : 0);
-        // TODO: The bot still undervalues pawns in endgames, eg preferring a bishop to two pawns
-
-        return (mg * phase + eg * (24 - phase)) / (board.IsWhiteToMove ? 24 : -24);
-
-        // int res = (mg * phase + eg * (24 - phase)) / 24 * (b.IsWhiteToMove ? 1 : -1);
-        // int expected = Pesto.originalPestoEval(b);
-        // if (res != expected)
-        // {
-        //     Console.WriteLine("eval was {0}, should be {1}", res, expected);
-        //     Console.WriteLine(b.CreateDiagram());
-        //     Debug.Assert(false);
-        // }
-        // return res;
-    }
-    
     }
 }

@@ -114,9 +114,9 @@ public class MyBot : IChessBot
 
     #if PRINT_DEBUG_INFO
             Console.WriteLine("All nodes: " + allNodeCtr + ", non quiescent: " + nonQuiescentNodeCtr + ", beta cutoff: " + betaCutoffCtr
-                + ", percent cutting (higher is better): " + (100.0 * betaCutoffCtr / allNodeCtr).ToString("0.0")
-                + ", percent cutting for parents of inner nodes: " + (100.0 * parentOfInnerNodeBetaCutoffCtr / parentOfInnerNodeCtr).ToString("0.0"));
-            Console.WriteLine("Tried PVS {0} times, retried {1} times ({2} percent)", pvsTryCtr, pvsRetryCtr, 100.0 * pvsRetryCtr / pvsTryCtr);
+                + ", percent cutting (higher is better): " + (1.0 * betaCutoffCtr / allNodeCtr).ToString("P1")
+                + ", percent cutting for parents of inner nodes: " + (1.0 * parentOfInnerNodeBetaCutoffCtr / parentOfInnerNodeCtr).ToString("P1"));
+            Console.WriteLine("Tried PVS {0} times, retried {1} times ({2:P2})", pvsTryCtr, pvsRetryCtr, (double)pvsRetryCtr / pvsTryCtr);
             Console.WriteLine("NPS: {0}k", (allNodeCtr / (double)timer.MillisecondsElapsedThisTurn).ToString("0.0"));
             Console.WriteLine("Time:{0} of {1} ms, remaining {2}", timer.MillisecondsElapsedThisTurn, timer.GameStartTimeMilliseconds, timer.MillisecondsRemaining);
             Console.WriteLine("PV: ");
@@ -160,8 +160,6 @@ public class MyBot : IChessBot
             return ply - 30_000; // being checkmated later is better (as is checkmating earlier)
         if (board.IsDraw())
             return 0;
-        if (numMoves == 0) // can only happen in qsearch for now
-            return standPat;
 
         if (inQsearch)
         {
