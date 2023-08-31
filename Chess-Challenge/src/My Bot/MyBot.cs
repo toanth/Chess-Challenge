@@ -209,6 +209,7 @@ public class MyBot : IChessBot
             if (alpha < standPat) alpha = standPat;
         }
 
+        if (inCheck) ++remainingDepth;
 
         // TODO: Use tt for stand pat score
         //ref Move ttMove = ref ttMoves[board.ZobristKey & 0x1ff_ffff];
@@ -264,8 +265,8 @@ public class MyBot : IChessBot
             int newDepth = remainingDepth - 1;
             board.MakeMove(move);
             if (moveIdx == 0) // pvs like this is -7 +- 20 elo after 1000 games; adding inQsearch || ... doesn't change that, nor does move == ttMove
-            {
-                score = -negamax(newDepth + (board.IsInCheck() ? 1: 0), -beta, -alpha, ply + 1, true);
+            {// TODO: Retest doing essentially depth += inCheck at the start of this function to avoid IsInChec
+                score = -negamax(newDepth /*+ (board.IsInCheck() ? 1: 0)*/, -beta, -alpha, ply + 1, true);
             }
             else
             {
