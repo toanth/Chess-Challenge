@@ -243,6 +243,14 @@ namespace ChessChallenge.Application
                     moveToPlay = chosenMove;
                     isWaitingToPlayMove = true;
                     playMoveTime = lastMoveMadeTime + MinMoveDelay;
+                    if ((PlayerToMove == PlayerWhite) == botAPlaysWhite)
+                    {
+                        BotStatsA.BotInfo = PlayerToMove.Bot.Info();
+                    }
+                    else
+                    {
+                        BotStatsB.BotInfo = PlayerToMove.Bot.Info();
+                    }
                 }
                 else
                 {
@@ -456,6 +464,8 @@ namespace ChessChallenge.Application
             public int NumDraws;
             public int NumTimeouts;
             public int NumIllegalMoves;
+
+            public API.BotInfo BotInfo;
 
             public BotMatchStats(string name) => BotName = name;
         }

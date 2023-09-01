@@ -3,7 +3,8 @@
 #define PRINT_DEBUG_INFO
 #endif
 
-#define NO_JOKE
+//#define PRINT_DEBUG_INFO
+//#define NO_JOKE
 
 using System;
 using static System.Math;
@@ -52,6 +53,8 @@ public class MyBot : IChessBot
     long parentOfInnerNodeBetaCutoffCtr;
     long pvsTryCtr;
     long pvsRetryCtr;
+    int lastDepth;
+    int lastScore;
 
     void printPv(int remainingDepth = 15)
     {
@@ -65,6 +68,12 @@ public class MyBot : IChessBot
             board.UndoMove(move);
         }
     }
+
+    public BotInfo Info()
+    {
+        return new BotInfo(lastDepth, lastScore);
+    }
+
 #endif
 
     #region compresto
@@ -121,7 +130,7 @@ public class MyBot : IChessBot
 
     private byte[] pesto = compresto.SelectMany(BitConverter.GetBytes).ToArray();
 
-#endregion // compresto
+    #endregion // compresto
 
 
     bool shouldStopThinking() // TODO: Can we save tokens by using properties instead of methods?
@@ -138,7 +147,7 @@ public class MyBot : IChessBot
         timer = theTimer;
 
 
-        history = new int[2, 7, 64]; // reset the history table by reallocating it, saving tokens (no allocation in definition)
+        history = new int[2, 7, 64];
 
         //for (int stm = 0; stm <= 1; ++stm)
         //{
@@ -153,14 +162,15 @@ public class MyBot : IChessBot
         // starting with depth 0 wouldn't only be useless but also incorrect due to assumptions in negamax
 #if PRINT_DEBUG_INFO
         for (int depth = 1; depth++ < 50 && !shouldStopThinking();)
-        {
-            int score = negamax(depth, -30_000, 30_000, 0, false);
-            Console.WriteLine("Depth {0}, score {1}, best move {2}", depth - 1, score, bestRootMove);
+            {
+                int score = negamax(depth, -30_000, 30_000, 0);
+            lastDepth = depth - 1;
+            if (score != 12345) lastScore = score;
+            Console.WriteLine("Depth {0}, score {1}, best move {2}", depth, lastScore, bestRootMove);
         }
 #else
-        for (int depth = 1; depth++ < 50;)
-            negamax(depth, -30_000, 30_000, 0, false);
-
+        for (int depth = 1; depth++ < 50 && !shouldStopThinking();)
+            negamax(depth, -30_000, 30_000, 0);
 #endif
 
 #if PRINT_DEBUG_INFO
@@ -232,19 +242,19 @@ public class MyBot : IChessBot
         if (alpha >= beta) return alpha;
 
 
-        // Reverse Futility Pruning
+        // Reverse Futility Pruning (RFP)
         if (!isPvNode && !inCheck && !inQsearch && remainingDepth < 5 && standPat >= beta + 64 * remainingDepth)
             return standPat;
 
-        // Null Move Pruning. TODO: Avoid zugzwang by testing phase?
+        // Null Move Pruning (NMP). TODO: Avoid zugzwang by testing phase?
         if (!isPvNode && remainingDepth >= 4 && allowNmp && standPat >= beta && board.TrySkipTurn())
         {
             //int reduction = 3 + remainingDepth / 5;
             // changing the ply by a large number doesn't seem to gain elo, even though this should prevent overwriting killer moves
-            int nullScore = -negamax(remainingDepth - 3 - remainingDepth / 5, -beta, -alpha, ply + 1, false);
+            score = -negamax(remainingDepth - 3 - remainingDepth / 5, -beta, -alpha, ply + 1, false);
             board.UndoSkipTurn();
-            if (nullScore >= beta)
-                return nullScore;
+            if (score >= beta)
+                return score;
         }
 
         // using this manual for loop and Array.Sort gained about 50 elo compared to OrderByDescending
@@ -268,7 +278,7 @@ public class MyBot : IChessBot
                 score = -negamax(newDepth, -beta, -alpha, ply + 1);
             else
             {
-                // Late Move Reductions, needs further parameter tuning
+                // Late Move Reductions (LMR), needs further parameter tuning
                 // !isRoot seems to result in a small improvement, at least. So far, reducing pv nodes less seems to lose elo
                 int reduction = moveIdx >= (isPvNode ? 6 : 4)
                     && remainingDepth > 3
@@ -367,8 +377,7 @@ public class MyBot : IChessBot
             //+ (((b.GetPieceBitboard(PieceType.Pawn, !stm) >> b.GetKingSquare(stm).File) & 0x0001_0101_0101_0101) == 0 ? 0 : 50)
             // king safety: Replace the king by a virtual queen and count the number of squares it can reach as a measure of how open the king is.
             // This is a very crude approximation, but doesn't require too many tokens. (Scale by negative amount for endgame?)
-            //mg -= 7 * BitboardHelper.GetNumberOfSetBits(BitboardHelper.GetPieceAttacks(PieceType.Queen, b.GetKingSquare(stm),
-            //stm ? b.WhitePiecesBitboard : b.BlackPiecesBitboard, stm));
+            //mg -= 7 * BitboardHelper.GetNumberOfSetBits(BitboardHelper.GetPieceAttacks(PieceType.Queen, b.GetKingSquare(stm), stm ? b.WhitePiecesBitboard : b.BlackPiecesBitboard, stm));
             mg = -mg;
             eg = -eg;
         }
