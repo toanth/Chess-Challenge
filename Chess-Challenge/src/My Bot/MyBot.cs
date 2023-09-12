@@ -17,8 +17,7 @@ using ChessChallenge.API;
 
 public class MyBot : IChessBot
 {
-    // TODO: By defining all methods inside Think, member variables become unnecessary
-
+    
     public record struct TTEntry (
         ulong key,
         Move bestMove,
@@ -34,9 +33,7 @@ public class MyBot : IChessBot
 
     private TTEntry[] tt = new TTEntry[0x80_0000];
 
-    private Move[] killers = new Move[65536];
-
-    private int[,,] history/* = new int[2, 7, 64]*/;
+    private Move[] killers = new Move[256];
 
     private Move bestRootMove;
 
@@ -126,10 +123,11 @@ public class MyBot : IChessBot
             // long games in winning positions but as we improve our engine we should see less time trouble overall.
             timer.MillisecondsElapsedThisTurn > timer.MillisecondsRemaining / 32;
 
-        history = new int[2, 7, 64];
+        int[,,] history = new int[2, 7, 64];
         // starting with depth 0 wouldn't only be useless but also incorrect due to assumptions in negamax
         for (int depth = 1, alpha = -30_000, beta = 30_000; depth < 50 && !shouldStopThinking();)
         {
+            // TODO: This should be bugged when out of time when the last score failed low on the asp window
             int score = negamax(depth, alpha, beta, 0, false);
             // excluding checkmate scores was inconclusive after 6000 games, so likely not worth the tokens
             if (score <= alpha) alpha += score - alpha;
@@ -235,9 +233,8 @@ public class MyBot : IChessBot
 
             if (alpha >= beta) return alpha;
 
-            // TODO: Assign score here?
             int search(int minusNewAlpha, int reduction = 1, bool allowNullMovePruning = true) =>
-                -negamax(remainingDepth - reduction, -minusNewAlpha, -alpha, ply + 1, allowNullMovePruning);
+                score = -negamax(remainingDepth - reduction, -minusNewAlpha, -alpha, ply + 1, allowNullMovePruning);
 
             // Reverse Futility Pruning (RFP)
             if (isNotPvNode && !inCheck)
@@ -253,8 +250,7 @@ public class MyBot : IChessBot
                     board.ForceSkipTurn();
                     //int reduction = 3 + remainingDepth / 5;
                     // changing the ply by a large number doesn't seem to gain elo, even though this should prevent overwriting killer moves
-                    score = search(beta, 3 + remainingDepth / 5, false);
-                    // -negamax(remainingDepth - 3 - remainingDepth / 5, -beta, -alpha, ply + 1, false);
+                    search(beta, 3 + remainingDepth / 5, false);
                     board.UndoSkipTurn();
                     if (score >= beta)
                         return score;
@@ -278,12 +274,10 @@ public class MyBot : IChessBot
             moveIdx = 0;
             foreach (Move move in legalMoves)
             {
-                int newDepth = remainingDepth - 1;
                 board.MakeMove(move);
                 // pvs like this is -7 +- 20 elo after 1000 games; adding inQsearch || ... doesn't change that, nor does move == ttMove
                 if (moveIdx++ == 0)
-                    score = search(beta); 
-                        // -negamax(newDepth, -beta, -alpha, ply + 1);
+                    search(beta);
                 else
                 {
                     // Late Move Reductions (LMR), needs further parameter tuning. `reduction` is R + 1 to save tokens
@@ -296,10 +290,9 @@ public class MyBot : IChessBot
                         //reduction -= isPvNode ? 1 : 0;
                         Clamp(4 - (isNotPvNode ? 0 : 1), 1, remainingDepth - 1)
                         : 1;
-                    score = search(alpha + 1, reduction);
-                        // -negamax(newDepth - reduction, -alpha - 1, -alpha, ply + 1);
-                        if (alpha < score && score < beta)
-                            score = search(beta);  // -negamax(newDepth, -beta, -alpha, ply + 1);
+                    search(alpha + 1, reduction);
+                    if (alpha < score && score < beta)
+                        search(beta);
                 }
 
                 board.UndoMove(move);
@@ -318,11 +311,15 @@ public class MyBot : IChessBot
                         if (remainingDepth > 1) ++parentOfInnerNodeBetaCutoffCtr;
 #endif
                         // killer heuristic gives 27 +- 20 elo, using two entries gives 7.5 +- 14 elo 
-                        // checking that move != killers[2 * ply] doesn't seem to gain elo at all after 4000 games
-                        if (!move.IsCapture && move != killers[2 * ply])
+                        // checking that move != killers[2 * ply] doesn't gain elo after 10k games in total, spread between 2 versions of the engine
+                        if (!move.IsCapture)
                         {
-                            killers[2 * ply + 1] = killers[2 * ply];
-                            killers[2 * ply] = move;
+                            if (move != killers[2 * ply])
+                            {
+                                killers[2 * ply + 1] = killers[2 * ply];
+                                killers[2 * ply] = move;
+                            }
+
                             // gravity didn't gain (TODO: Retest later when the engine is better), but history still gained quite a bit
                             history[board.IsWhiteToMove ? 1 : 0, (int)move.MovePieceType, move.TargetSquare.Index]
                                 += remainingDepth * remainingDepth;
@@ -338,7 +335,6 @@ public class MyBot : IChessBot
             if (!inQsearch)
                 ttEntry = new(board.ZobristKey, localBestMove, (short)bestScore,
                     (sbyte)(bestScore <= originalAlpha ? 0 : bestScore >= beta ? 2 : 1), (sbyte)remainingDepth);
-            //ttEntry.bestMove = localBestMove;
 
             return bestScore;
         }

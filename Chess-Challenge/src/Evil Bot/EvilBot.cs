@@ -15,31 +15,24 @@ namespace ChessChallenge.Example
 
     public class EvilBot : IChessBot
     {
-        private Board board;
-
-        private Timer timer;
-        // TODO: By defining all methods inside Think, member variables become unnecessary
-
-        public record struct TTEntry(
-            ulong key,
-            Move bestMove,
-            short score,
-            sbyte flag,
-            sbyte depth
-        );
+    public record struct TTEntry (
+        ulong key,
+        Move bestMove,
+        short score,
+        sbyte flag,
+        sbyte depth
+    );
 
 
-        // 1 << 25 entries (without the pesto values, it would technically be possible to store exactly 1 << 26 Moves with 4 byte per Move)
-        // the tt move ordering alone gained almost 400 elo
-        //private Move[] ttMoves = new Move[0x200_0000];
+    // 1 << 25 entries (without the pesto values, it would technically be possible to store exactly 1 << 26 Moves with 4 byte per Move)
+    // the tt move ordering alone gained almost 400 elo
+    //private Move[] ttMoves = new Move[0x200_0000];
 
-        private TTEntry[] tt = new TTEntry[0x80_0000];
+    private TTEntry[] tt = new TTEntry[0x80_0000];
 
-        private Move[] killers = new Move[65536];
+    private Move[] killers = new Move[256];
 
-        private int[,,] history /* = new int[2, 7, 64]*/;
-
-        private Move bestRootMove;
+    private Move bestRootMove;
 
 #if PRINT_DEBUG_INFO
     long allNodeCtr;
@@ -54,19 +47,6 @@ namespace ChessChallenge.Example
     int lastDepth;
     int lastScore;
 
-    void printPv(int remainingDepth = 15)
-    {
-        var entry = tt[board.ZobristKey & 0x7f_ffff];
-        var move = entry.bestMove;
-        if (board.ZobristKey == entry.key && board.GetLegalMoves().Contains(move) && remainingDepth > 0)
-        {
-            Console.WriteLine(move);
-            board.MakeMove(move);
-            printPv(remainingDepth - 1);
-            board.UndoMove(move);
-        }
-    }
-
     public BotInfo Info()
     {
         return new BotInfo(lastDepth, lastScore);
@@ -74,7 +54,7 @@ namespace ChessChallenge.Example
 
 #endif
 
-        #region compresto
+    #region compresto
 
 #if NO_JOKE
 
@@ -104,93 +84,77 @@ namespace ChessChallenge.Example
 
 #else
 
-        // modified pesto values to make the king lead the army (as he should)
-        private static ulong[] compresto =
-        {
-            2531906049332683555, 1748981496244382085, 1097852895337720349, 879379754340921365,
-            733287618436800776, 1676506906360749833, 957361353080644096, 2531906049332683555, 1400370699429487872,
-            7891921272903718197,
-            12306085787436563023, 10705271422119415669, 8544333011004326513, 7968995920879187303, 7741846628066281825,
-            7452158230270339349,
-            5357357457767159349, 2550318802336244280, 5798248685363885890, 5789790151167530830, 6222952639246589772,
-            6657566409878495570,
-            6013263560801673558, 4407693923506736945, 8243364706457710951, 8314078770487191394, 6306293301333023298,
-            3692787177354050607,
-            3480508800547106083, 2756844305966902810, 18386335130924827, 3252248017965169204, 6871752429727068694,
-            7516062622759586586,
-            7737582523311005989, 3688521973121554199, 3401675877915367465, 3981239439281566756, 3688238338080057871,
-            5375663681380401,
-            18446744073709551615, 18446744073709551615, 18446744073709551615, 18085043209519168250,
-            14468034567615334600, 7234017283807667300,
-            729075380852492810, 2220548423680, 578721382704613384, 14100080608108000698, 6654698745744944230,
-            1808489945494790184,
-            507499387321389333, 1973657882726156, 74881230395412501, 578721382704613384, 10212557253393705,
-            3407899295075687242,
-            4201957831109070667, 5866904407588300370, 5865785079031356753, 5570777287267344460, 3984647049929379641,
-            2535897457754910790,
-            219007409309353485, 943238143453304595, 2241421631242834717, 2098155335031661592, 1303832920857255445,
-            870353785759930383,
-            3397624511334669, 726780562173596164, 1809356472696839713, 1665231324524388639, 1229220018493528859,
-            1590638277979871000,
-            651911504053672215, 291616928119591952, 1227524515678129678, 6763160767239691, 4554615069702439202,
-            3119099418927382298,
-            3764532488529260823, 5720789117110010158, 4778967136330467097, 3473748882448060443, 794625965904696341,
-            150601370378243850,
-            4129336036406339328, 6152322103641660222, 6302355975661771604, 5576700317533364290, 4563097935526446648,
-            4706642459836630839,
-            4126790774883761967, 2247925333337909269, 17213489408, 6352191893251519744, 982348882
-        };
+    // modified pesto values to make the king lead the army (as he should)
+    private static ulong[] compresto = { 2531906049332683555, 1748981496244382085, 1097852895337720349, 879379754340921365,
+        733287618436800776, 1676506906360749833, 957361353080644096, 2531906049332683555, 1400370699429487872, 7891921272903718197,
+        12306085787436563023, 10705271422119415669, 8544333011004326513, 7968995920879187303, 7741846628066281825, 7452158230270339349,
+        5357357457767159349, 2550318802336244280, 5798248685363885890, 5789790151167530830, 6222952639246589772, 6657566409878495570,
+        6013263560801673558, 4407693923506736945, 8243364706457710951, 8314078770487191394, 6306293301333023298, 3692787177354050607,
+        3480508800547106083, 2756844305966902810, 18386335130924827, 3252248017965169204, 6871752429727068694, 7516062622759586586,
+        7737582523311005989, 3688521973121554199, 3401675877915367465, 3981239439281566756, 3688238338080057871, 5375663681380401,
+        18446744073709551615, 18446744073709551615, 18446744073709551615, 18085043209519168250, 14468034567615334600, 7234017283807667300,
+        729075380852492810, 2220548423680, 578721382704613384, 14100080608108000698, 6654698745744944230, 1808489945494790184,
+        507499387321389333, 1973657882726156, 74881230395412501, 578721382704613384, 10212557253393705, 3407899295075687242,
+        4201957831109070667, 5866904407588300370, 5865785079031356753, 5570777287267344460, 3984647049929379641, 2535897457754910790,
+        219007409309353485, 943238143453304595, 2241421631242834717, 2098155335031661592, 1303832920857255445, 870353785759930383,
+        3397624511334669, 726780562173596164, 1809356472696839713, 1665231324524388639, 1229220018493528859, 1590638277979871000,
+        651911504053672215, 291616928119591952, 1227524515678129678, 6763160767239691, 4554615069702439202, 3119099418927382298,
+        3764532488529260823, 5720789117110010158, 4778967136330467097, 3473748882448060443, 794625965904696341, 150601370378243850,
+        4129336036406339328, 6152322103641660222, 6302355975661771604, 5576700317533364290, 4563097935526446648, 4706642459836630839,
+        4126790774883761967, 2247925333337909269, 17213489408, 6352191893251519744, 982348882
+    };
 
 #endif
 
-        private byte[] pesto = compresto.SelectMany(BitConverter.GetBytes).ToArray();
+    private byte[] pesto = compresto.SelectMany(BitConverter.GetBytes).ToArray();
 
-        #endregion // compresto
+    #endregion // compresto
 
 
-        bool shouldStopThinking() // TODO: Can we save tokens by using properties instead of methods?
-        {
+
+
+    public Move Think(Board board, Timer timer)
+    {
+        bool shouldStopThinking() =>
             // The / 32 makes the most sense when the game last for another 32 moves. Currently, poor bot performance causes unnecesarily
             // long games in winning positions but as we improve our engine we should see less time trouble overall.
-            return timer.MillisecondsElapsedThisTurn > timer.MillisecondsRemaining / 32;
-        }
+            timer.MillisecondsElapsedThisTurn > timer.MillisecondsRemaining / 32;
 
-
-        public Move Think(Board theBoard, Timer theTimer)
+        int[,,] history = new int[2, 7, 64];
+        // starting with depth 0 wouldn't only be useless but also incorrect due to assumptions in negamax
+        for (int depth = 1, alpha = -30_000, beta = 30_000; depth < 50 && !shouldStopThinking();)
         {
-            board = theBoard;
-            timer = theTimer;
-
-
-            history = new int[2, 7, 64];
-            // starting with depth 0 wouldn't only be useless but also incorrect due to assumptions in negamax
-            for (int depth = 1, alpha = -30_000, beta = 30_000, score; depth < 50 && !shouldStopThinking();)
+            // TODO: This should be bugged when out of time when the last score failed low on the asp window
+            int score = negamax(depth, alpha, beta, 0, false);
+            // excluding checkmate scores was inconclusive after 6000 games, so likely not worth the tokens
+            if (score <= alpha) alpha += score - alpha;
+            else if (score >= beta) beta += score - beta;
+            else
             {
-                score = negamax(depth, alpha, beta, 0);
-                if (score <= alpha) alpha += score - alpha;
-                else if (score >= beta) beta += score - beta;
-                else
-                {
-                    alpha = beta = score;
-                    ++depth;
-                }
+                alpha = beta = score;
+                ++depth;
+            }
 
-                alpha -= 20;
-                beta += 20;
+            // tested values: 8, 15, 20, 30 (15 being the second best)
+            alpha -= 20;
+            beta += 20;
 
 #if PRINT_DEBUG_INFO
             lastDepth = depth - 1;
             if (score != 12345) lastScore = score;
             Console.WriteLine("Depth {0}, score {1}, best move {2}", depth, lastScore, bestRootMove);
 #endif
-            }
+        }
 
 #if PRINT_DEBUG_INFO
-        Console.WriteLine("All nodes: " + allNodeCtr + ", non quiescent: " + nonQuiescentNodeCtr + ", beta cutoff: " + betaCutoffCtr
-            + ", percent cutting (higher is better): " + (1.0 * betaCutoffCtr / allNodeCtr).ToString("P1")
-            + ", percent cutting for parents of inner nodes: " + (1.0 * parentOfInnerNodeBetaCutoffCtr / parentOfInnerNodeCtr).ToString("P1"));
+        Console.WriteLine("All nodes: " + allNodeCtr + ", non quiescent: " + nonQuiescentNodeCtr + ", beta cutoff: " +
+                          betaCutoffCtr
+                          + ", percent cutting (higher is better): " + (1.0 * betaCutoffCtr / allNodeCtr).ToString("P1")
+                          + ", percent cutting for parents of inner nodes: " +
+                          (1.0 * parentOfInnerNodeBetaCutoffCtr / parentOfInnerNodeCtr).ToString("P1"));
         Console.WriteLine("NPS: {0}k", (allNodeCtr / (double)timer.MillisecondsElapsedThisTurn).ToString("0.0"));
-        Console.WriteLine("Time:{0} of {1} ms, remaining {2}", timer.MillisecondsElapsedThisTurn, timer.GameStartTimeMilliseconds, timer.MillisecondsRemaining);
+        Console.WriteLine("Time:{0} of {1} ms, remaining {2}", timer.MillisecondsElapsedThisTurn,
+            timer.GameStartTimeMilliseconds, timer.MillisecondsRemaining);
         Console.WriteLine("PV: ");
         printPv();
         Console.WriteLine();
@@ -199,24 +163,36 @@ namespace ChessChallenge.Example
         betaCutoffCtr = 0;
         parentOfInnerNodeCtr = 0;
         parentOfInnerNodeBetaCutoffCtr = 0;
+        
+    void printPv(int remainingDepth = 15)
+    {
+        var entry = tt[board.ZobristKey & 0x7f_ffff];
+        var move = entry.bestMove;
+        if (board.ZobristKey == entry.key && board.GetLegalMoves().Contains(move) && remainingDepth > 0)
+        {
+            Console.WriteLine(move);
+            board.MakeMove(move);
+            printPv(remainingDepth - 1);
+            board.UndoMove(move);
+        }
+    }
 #endif
 
-            return bestRootMove;
-        }
+        return bestRootMove;
 
 
-        int negamax(int remainingDepth, int alpha, int beta, int ply, bool allowNmp = true)
+        int negamax(int remainingDepth, int alpha, int beta, int ply, bool allowNmp)
         {
 #if PRINT_DEBUG_INFO
-        ++allNodeCtr;
-        if (remainingDepth > 0) ++nonQuiescentNodeCtr;
-        if (remainingDepth > 1) ++parentOfInnerNodeCtr;
+            ++allNodeCtr;
+            if (remainingDepth > 0) ++nonQuiescentNodeCtr;
+            if (remainingDepth > 1) ++parentOfInnerNodeCtr;
 #endif
 
             // Using stackalloc doesn't gain elo
             bool /*isRoot = ply == 0,*/
                 inQsearch = remainingDepth <= 0,
-                isPvNode = alpha + 1 < beta;
+                isNotPvNode = alpha + 1 >= beta;
             var legalMoves = board.GetLegalMoves(inQsearch);
             int numMoves = legalMoves.Length,
                 bestScore = -32_000,
@@ -246,68 +222,74 @@ namespace ChessChallenge.Example
             // TODO: Use tt for stand pat score?
             ref TTEntry ttEntry = ref tt[board.ZobristKey & 0x7f_ffff];
 
-            if (!isPvNode && ttEntry.depth >= remainingDepth && ttEntry.key == board.ZobristKey)
+            if (isNotPvNode && ttEntry.depth >= remainingDepth && ttEntry.key == board.ZobristKey)
             {
-                if (ttEntry.flag > -1) alpha = Max(alpha, ttEntry.score); // TODO: Also set bestScore?
-                if (ttEntry.flag < 1) beta = Min(beta, ttEntry.score);
+                if (ttEntry.flag > 0) alpha = Max(alpha, ttEntry.score); // TODO: Also set bestScore?
+                if (ttEntry.flag < 2) beta = Min(beta, ttEntry.score);
             }
 
             if (alpha >= beta) return alpha;
 
+            int search(int minusNewAlpha, int reduction = 1, bool allowNullMovePruning = true) =>
+                score = -negamax(remainingDepth - reduction, -minusNewAlpha, -alpha, ply + 1, allowNullMovePruning);
 
             // Reverse Futility Pruning (RFP)
-            if (!isPvNode && !inCheck && !inQsearch && remainingDepth < 5 && standPat >= beta + 64 * remainingDepth)
-                return standPat;
-
-            // Null Move Pruning (NMP). TODO: Avoid zugzwang by testing phase?
-            if (!isPvNode && remainingDepth >= 4 && allowNmp && standPat >= beta && board.TrySkipTurn())
+            if (isNotPvNode && !inCheck)
             {
-                //int reduction = 3 + remainingDepth / 5;
-                // changing the ply by a large number doesn't seem to gain elo, even though this should prevent overwriting killer moves
-                score = -negamax(remainingDepth - 3 - remainingDepth / 5, -beta, -alpha, ply + 1, false);
-                board.UndoSkipTurn();
-                if (score >= beta)
-                    return score;
+                if (!inQsearch && remainingDepth < 5 && standPat >= beta + 64 * remainingDepth)
+                    return standPat;
+
+                // TODO: New local function for the negamax call, should save some tokens. Also, obviously all should be local to Think
+
+                // Null Move Pruning (NMP). TODO: Avoid zugzwang by testing phase?
+                if (remainingDepth >= 4 && allowNmp && standPat >= beta)
+                {
+                    board.ForceSkipTurn();
+                    //int reduction = 3 + remainingDepth / 5;
+                    // changing the ply by a large number doesn't seem to gain elo, even though this should prevent overwriting killer moves
+                    search(beta, 3 + remainingDepth / 5, false);
+                    board.UndoSkipTurn();
+                    if (score >= beta)
+                        return score;
+                }
             }
 
             // using this manual for loop and Array.Sort gained about 50 elo compared to OrderByDescending
             var scores = new int[numMoves];
-            for (; moveIdx < numMoves;)
+            foreach (Move move in legalMoves)
             {
-                Move move = legalMoves[moveIdx];
-                scores[moveIdx++] = move == ttEntry.bestMove ? -1_000_000_000 :
-                    move.IsCapture ? (int)move.MovePieceType - (int)move.CapturePieceType * 1_000_000 :
-                    move == killers[2 * ply] || move == killers[2 * ply + 1] ? -100_000 :
-                    -history[board.IsWhiteToMove ? 1 : 0, (int)move.MovePieceType, move.TargetSquare.Index];
+                scores[moveIdx++] = -(move == ttEntry.bestMove ? 1_000_000_000 :
+                    move.IsCapture ? (int)move.CapturePieceType * 1_000_000 - (int)move.MovePieceType :
+                    // TODO: Test giving first killer a higher score
+                    move == killers[2 * ply] || move == killers[2 * ply + 1] ? 100_000 :
+                    history[board.IsWhiteToMove ? 1 : 0, (int)move.MovePieceType, move.TargetSquare.Index]);
             }
 
             Array.Sort(scores, legalMoves);
 
             Move localBestMove = default;
-            for (moveIdx = 0; moveIdx < legalMoves.Length;)
+            moveIdx = 0;
+            foreach (Move move in legalMoves)
             {
-                Move move = legalMoves[moveIdx];
-                int newDepth = remainingDepth - 1;
                 board.MakeMove(move);
-                if (moveIdx++ ==
-                    0) // pvs like this is -7 +- 20 elo after 1000 games; adding inQsearch || ... doesn't change that, nor does move == ttMove
-                    score = -negamax(newDepth, -beta, -alpha, ply + 1);
+                // pvs like this is -7 +- 20 elo after 1000 games; adding inQsearch || ... doesn't change that, nor does move == ttMove
+                if (moveIdx++ == 0)
+                    search(beta);
                 else
                 {
-                    // Late Move Reductions (LMR), needs further parameter tuning
-                    // !isRoot seems to result in a small improvement, at least. So far, reducing pv nodes less seems to lose elo
-                    int reduction = moveIdx >= (isPvNode ? 6 : 4)
+                    // Late Move Reductions (LMR), needs further parameter tuning. `reduction` is R + 1 to save tokens
+                    int reduction = moveIdx >= (isNotPvNode ? 4 : 6)
                                     && remainingDepth > 3
                                     && !move.IsCapture
                                     && !inCheck
                         ?
                         //reduction = 3; // TODO: Once the engine is better, test with viri values: (int)(0.77 + Log(remainingDepth) * Log(i) / 2.36);
                         //reduction -= isPvNode ? 1 : 0;
-                        Clamp(3 - (isPvNode ? 1 : 0), 0, remainingDepth - 2)
-                        : 0;
-                    score = -negamax(newDepth - reduction, -alpha - 1, -alpha, ply + 1);
+                        Clamp(4 - (isNotPvNode ? 0 : 1), 1, remainingDepth - 1)
+                        : 1;
+                    search(alpha + 1, reduction);
                     if (alpha < score && score < beta)
-                        score = -negamax(newDepth, -beta, -alpha, ply + 1);
+                        search(beta);
                 }
 
                 board.UndoMove(move);
@@ -322,15 +304,19 @@ namespace ChessChallenge.Example
                     if (score >= beta)
                     {
 #if PRINT_DEBUG_INFO
-                    ++betaCutoffCtr;
-                    if (remainingDepth > 1) ++parentOfInnerNodeBetaCutoffCtr;
+                        ++betaCutoffCtr;
+                        if (remainingDepth > 1) ++parentOfInnerNodeBetaCutoffCtr;
 #endif
                         // killer heuristic gives 27 +- 20 elo, using two entries gives 7.5 +- 14 elo 
-                        // checking that move != killers[2 * ply] doesn't seem to gain elo at all after 4000 games
-                        if (!move.IsCapture && move != killers[2 * ply])
+                        // checking that move != killers[2 * ply] doesn't gain elo after 10k games in total, spread between 2 versions of the engine
+                        if (!move.IsCapture)
                         {
-                            killers[2 * ply + 1] = killers[2 * ply];
-                            killers[2 * ply] = move;
+                            if (move != killers[2 * ply])
+                            {
+                                killers[2 * ply + 1] = killers[2 * ply];
+                                killers[2 * ply] = move;
+                            }
+
                             // gravity didn't gain (TODO: Retest later when the engine is better), but history still gained quite a bit
                             history[board.IsWhiteToMove ? 1 : 0, (int)move.MovePieceType, move.TargetSquare.Index]
                                 += remainingDepth * remainingDepth;
@@ -345,8 +331,7 @@ namespace ChessChallenge.Example
             // not updating the tt move in qsearch gives close to 20 elo (with close to 20 elo error bounds, but meassured two times with 1000 games each)
             if (!inQsearch)
                 ttEntry = new(board.ZobristKey, localBestMove, (short)bestScore,
-                    (sbyte)(bestScore <= originalAlpha ? -1 : bestScore >= beta ? 1 : 0), (sbyte)remainingDepth);
-            //ttEntry.bestMove = localBestMove;
+                    (sbyte)(bestScore <= originalAlpha ? 0 : bestScore >= beta ? 2 : 1), (sbyte)remainingDepth);
 
             return bestScore;
         }
@@ -360,7 +345,7 @@ namespace ChessChallenge.Example
             int phase = 0, mg = 7, eg = 7;
             foreach (bool isWhite in new[] { ourColor, !ourColor })
             {
-                for (int piece = -1; ++piece < 6;)
+                for (int piece = 6; --piece >= 0;)
                 {
                     ulong mask = board.GetPieceBitboard((PieceType)piece + 1, isWhite);
                     while (mask != 0)
@@ -418,5 +403,6 @@ namespace ChessChallenge.Example
             // }
             // return res;
         }
+    }
     }
 }
