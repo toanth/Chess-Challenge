@@ -15,6 +15,9 @@ namespace ChessChallenge.Example
 
     public class EvilBot : IChessBot
     {
+
+    // TODO: FP, LMP
+    
     public record struct TTEntry (
         ulong key,
         Move bestMove,
@@ -29,8 +32,6 @@ namespace ChessChallenge.Example
     //private Move[] ttMoves = new Move[0x200_0000];
 
     private TTEntry[] tt = new TTEntry[0x80_0000];
-
-    private Move[] killers = new Move[256];
 
     private Move bestRootMove;
 
@@ -112,15 +113,17 @@ namespace ChessChallenge.Example
 
 
 
-
     public Move Think(Board board, Timer timer)
     {
-        bool shouldStopThinking() =>
+        bool shouldStopThinking() => // TODO: Inline this to save tokens
             // The / 32 makes the most sense when the game last for another 32 moves. Currently, poor bot performance causes unnecesarily
             // long games in winning positions but as we improve our engine we should see less time trouble overall.
             timer.MillisecondsElapsedThisTurn > timer.MillisecondsRemaining / 32;
 
         int[,,] history = new int[2, 7, 64];
+        
+        Move[] killers = new Move[256];
+        
         // starting with depth 0 wouldn't only be useless but also incorrect due to assumptions in negamax
         for (int depth = 1, alpha = -30_000, beta = 30_000; depth < 50 && !shouldStopThinking();)
         {
@@ -190,7 +193,7 @@ namespace ChessChallenge.Example
 #endif
 
             // Using stackalloc doesn't gain elo
-            bool /*isRoot = ply == 0,*/
+            bool /*isRoot = ply == 0, // doesn't save tokens*/
                 inQsearch = remainingDepth <= 0,
                 isNotPvNode = alpha + 1 >= beta;
             var legalMoves = board.GetLegalMoves(inQsearch);
@@ -239,8 +242,6 @@ namespace ChessChallenge.Example
                 if (!inQsearch && remainingDepth < 5 && standPat >= beta + 64 * remainingDepth)
                     return standPat;
 
-                // TODO: New local function for the negamax call, should save some tokens. Also, obviously all should be local to Think
-
                 // Null Move Pruning (NMP). TODO: Avoid zugzwang by testing phase?
                 if (remainingDepth >= 4 && allowNmp && standPat >= beta)
                 {
@@ -253,15 +254,18 @@ namespace ChessChallenge.Example
                         return score;
                 }
             }
+            
+            // the following is 16 tokens for a slight (not passing SPRT after 10k games) elo improvement
+            killers[2 * ply + 2] = killers[2 * ply + 3] = default;
 
             // using this manual for loop and Array.Sort gained about 50 elo compared to OrderByDescending
             var scores = new int[numMoves];
             foreach (Move move in legalMoves)
             {
                 scores[moveIdx++] = -(move == ttEntry.bestMove ? 1_000_000_000 :
-                    move.IsCapture ? (int)move.CapturePieceType * 1_000_000 - (int)move.MovePieceType :
-                    // TODO: Test giving first killer a higher score
-                    move == killers[2 * ply] || move == killers[2 * ply + 1] ? 100_000 :
+                    move.IsCapture ? (int)move.CapturePieceType * 1_048_576  - (int)move.MovePieceType :
+                    // Giving the fitst killer a higher score doesn't seem to gain after 10k games
+                    move == killers[2 * ply] ? 1_000_001 : move == killers[2 * ply + 1] ? 1_000_000 :
                     history[board.IsWhiteToMove ? 1 : 0, (int)move.MovePieceType, move.TargetSquare.Index]);
             }
 
@@ -307,8 +311,6 @@ namespace ChessChallenge.Example
                         ++betaCutoffCtr;
                         if (remainingDepth > 1) ++parentOfInnerNodeBetaCutoffCtr;
 #endif
-                        // killer heuristic gives 27 +- 20 elo, using two entries gives 7.5 +- 14 elo 
-                        // checking that move != killers[2 * ply] doesn't gain elo after 10k games in total, spread between 2 versions of the engine
                         if (!move.IsCapture)
                         {
                             if (move != killers[2 * ply])
@@ -353,55 +355,15 @@ namespace ChessChallenge.Example
                         phase += pesto[768 + piece];
                         int psqtIndex = BitboardHelper.ClearAndGetIndexOfLSB(ref mask) ^
                                         (isWhite ? 56 : 0) + 64 * piece;
-                        // The (47 << piece) trick doesn't really save all that much at the moment, but...
-                        // ...TODO: By storing mg tables first, then eg tables, this code can be reused for mg and eg calculation, potentially saving a few tokens
-                        //if (piece == 5 /*&& stm == us*/)
-                        //{
-                        //    int rank = square >> 3;
-                        //    mg += 32 * (stm ? rank : 7 - rank);
-                        //} else
                         mg += pesto[psqtIndex] + (47 << piece) + pesto[piece + 776];
                         eg += pesto[psqtIndex + 384] + (47 << piece) + pesto[piece + 782];
 
-                        //                    // passed pawns detection, doesn't increase elo
-                        //                    ulong fileMask = (((0x700ul << square % 8 >> 1) & 0xff00) * 0x1010101010101);
-                        //                    ulong passedPawnMask = (stm ? fileMask << (square & 0xf8) : fileMask >> (8 + (square & 0xf8 ^ 56)));
-                        //                    if (piece == 0 && (b.GetPieceBitboard(p, !stm) & passedPawnMask) == 0)
-                        //                    {
-                        //#if PRINT_DEBUG_INFO
-                        //                        BitboardHelper.VisualizeBitboard(passedPawnMask);
-                        //                        Console.WriteLine("Passed pawn: {0}", newSquare(square).ToString());
-                        //#endif
-                        //                        eg += (square ^ (stm ? 0 : 56)) / 8 * 20;
-                        //                    }
                     }
                 }
-
-                // king safety: Is the king on a semi open file?
-                //+ (((b.GetPieceBitboard(PieceType.Pawn, !stm) >> b.GetKingSquare(stm).File) & 0x0001_0101_0101_0101) == 0 ? 0 : 50)
-                // king safety: Replace the king by a virtual queen and count the number of squares it can reach as a measure of how open the king is.
-                // This is a very crude approximation, but doesn't require too many tokens. (Scale by negative amount for endgame?)
-                //mg -= 7 * BitboardHelper.GetNumberOfSetBits(BitboardHelper.GetPieceAttacks(PieceType.Queen, b.GetKingSquare(stm), stm ? b.WhitePiecesBitboard : b.BlackPiecesBitboard, stm));
                 mg = -mg;
                 eg = -eg;
             }
-            // mopup: Bring the king closer to the opponent's king when there are no more pawns and we are ahead in material. Doesn't gain a lot of elo.
-            //Square whiteKing = board.GetKingSquare(true), blackKing = board.GetKingSquare(false);
-            //if (phase < 7 && board.GetAllPieceLists()[0].Count + board.GetAllPieceLists()[6].Count == 0)
-            //    eg += (12 - Abs(whiteKing.Rank - blackKing.Rank) + Abs(whiteKing.File - blackKing.File)) * (eg > 300 ? 12 : eg < -300 ? -12 : 0);
-            // TODO: The bot still undervalues pawns in endgames, eg preferring a bishop to two pawns
-
             return (mg * phase + eg * (24 - phase)) / 24;
-
-            // int res = (mg * phase + eg * (24 - phase)) / 24 * (b.IsWhiteToMove ? 1 : -1);
-            // int expected = Pesto.originalPestoEval(b);
-            // if (res != expected)
-            // {
-            //     Console.WriteLine("eval was {0}, should be {1}", res, expected);
-            //     Console.WriteLine(b.CreateDiagram());
-            //     Debug.Assert(false);
-            // }
-            // return res;
         }
     }
     }
