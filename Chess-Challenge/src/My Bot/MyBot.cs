@@ -8,7 +8,7 @@
 
 using System;
 using static System.Math;
-//using System.Collections;
+using static System.Convert;
 using System.Linq;
 using ChessChallenge.API;
 
@@ -17,14 +17,13 @@ using ChessChallenge.API;
 
 public class MyBot : IChessBot
 {
-
     // TODO: FP, LMP
     
     public record struct TTEntry (
         ulong key,
         Move bestMove,
         short score,
-        sbyte flag,
+        sbyte flag, // 2 = upper, 0 = exact, 1 = lower
         sbyte depth
     );
 
@@ -35,8 +34,8 @@ public class MyBot : IChessBot
 
     private TTEntry[] tt = new TTEntry[0x80_0000];
 
-    private Move[] killers = new Move[256];
-
+    Move[] killers = new Move[256];
+        
     private Move bestRootMove;
 
 #if PRINT_DEBUG_INFO
@@ -120,11 +119,14 @@ public class MyBot : IChessBot
     public Move Think(Board board, Timer timer)
     {
         bool shouldStopThinking() => // TODO: Inline this to save tokens
+            // The / 32 makes the most sense when the game last for another 32 moves. Currently, poor bot performance causes unnecesarily
+            // long games in winning positions but as we improve our engine we should see less time trouble overall.
             timer.MillisecondsElapsedThisTurn > timer.MillisecondsRemaining / 32;
 
         int[,,] history = new int[2, 7, 64];
+        
         // starting with depth 0 wouldn't only be useless but also incorrect due to assumptions in negamax
-        for (int depth = 1, alpha = -30_000, beta = 30_000; depth < 50 && !shouldStopThinking();) // TODO: Increase 50 to 64 or 128, increase killer array length
+        for (int depth = 1, alpha = -30_000, beta = 30_000; depth < 64 && !shouldStopThinking();)
         {
             // TODO: This should be bugged when out of time when the last score failed low on the asp window
             int score = negamax(depth, alpha, beta, 0, false);
@@ -166,18 +168,18 @@ public class MyBot : IChessBot
         parentOfInnerNodeCtr = 0;
         parentOfInnerNodeBetaCutoffCtr = 0;
         
-        void printPv(int remainingDepth = 15)
+    void printPv(int remainingDepth = 15)
+    {
+        var entry = tt[board.ZobristKey & 0x7f_ffff];
+        var move = entry.bestMove;
+        if (board.ZobristKey == entry.key && board.GetLegalMoves().Contains(move) && remainingDepth > 0)
         {
-            var entry = tt[board.ZobristKey & 0x7f_ffff];
-            var move = entry.bestMove;
-            if (board.ZobristKey == entry.key && board.GetLegalMoves().Contains(move) && remainingDepth > 0)
-            {
-                Console.WriteLine(move);
-                board.MakeMove(move);
-                printPv(remainingDepth - 1);
-                board.UndoMove(move);
-            }
+            Console.WriteLine(move);
+            board.MakeMove(move);
+            printPv(remainingDepth - 1);
+            board.UndoMove(move);
         }
+    }
 #endif
 
         return bestRootMove;
@@ -192,23 +194,18 @@ public class MyBot : IChessBot
 #endif
 
             // Using stackalloc doesn't gain elo
-            bool /*isRoot = ply == 0, // doesn't save tokens*/
-                inQsearch = remainingDepth <= 0,
-                isNotPvNode = alpha + 1 >= beta;
-            var legalMoves = board.GetLegalMoves(inQsearch);
-            int numMoves = legalMoves.Length,
-                bestScore = -32_000,
+            bool inQsearch = remainingDepth <= 0,
+                isNotPvNode = alpha + 1 >= beta,
+                inCheck = board.IsInCheck();
+
+            int bestScore = -32_000,
                 originalAlpha = alpha,
                 standPat = eval(),
                 moveIdx = 0,
+                killerIdx = 2 * ply,
                 score;
-            // calculating IsInCheck() before GetLegalMoves() loses very approx. 10 elo due to extra work
-            bool inCheck = board.IsInCheck();
 
-            // replacing those functions with legalMoves.Length == 0 checks (plus repetition detection, insufficient material) didn't gain elo, TODO: Retest eventually
-            if (board.IsInCheckmate())
-                return ply - 30_000; // being checkmated later is better (as is checkmating earlier)
-            if (board.IsDraw())
+            if (ply > 0 && board.IsRepeatedPosition())
                 return 0;
 
             if (inQsearch)
@@ -219,18 +216,18 @@ public class MyBot : IChessBot
             }
 
             // Check Extensions
-            if (inCheck) ++remainingDepth;
+            if (inCheck) ++remainingDepth; // TODO: Do this before setting qsearch to disallow dropping to qsearch in check? Probably unimportant
 
             // TODO: Use tt for stand pat score?
             ref TTEntry ttEntry = ref tt[board.ZobristKey & 0x7f_ffff];
-            
+
             if (isNotPvNode && ttEntry.depth >= remainingDepth && ttEntry.key == board.ZobristKey)
             {
-                if (ttEntry.flag == 0 && ttEntry.score <= alpha) return alpha;
-                if (ttEntry.flag == 2 && ttEntry.score >= beta) return beta;
-                if (ttEntry.flag == 1) return ttEntry.score;
+                if (ttEntry.flag == 1 && ttEntry.score >= beta
+                ||  ttEntry.flag == 2 && ttEntry.score <= alpha
+                ||  ttEntry.flag == 0) return ttEntry.score;
             }
-            
+
             int search(int minusNewAlpha, int reduction = 1, bool allowNullMovePruning = true) =>
                 score = -negamax(remainingDepth - reduction, -minusNewAlpha, -alpha, ply + 1, allowNullMovePruning);
 
@@ -240,11 +237,12 @@ public class MyBot : IChessBot
                 if (!inQsearch && remainingDepth < 5 && standPat >= beta + 64 * remainingDepth)
                     return standPat;
 
-                // Null Move Pruning (NMP). TODO: Avoid zugzwang by testing phase? Probably not worth is but test anyway
+                // Null Move Pruning (NMP). TODO: Avoid zugzwang by testing phase?
                 if (remainingDepth >= 4 && allowNmp && standPat >= beta)
                 {
                     board.ForceSkipTurn();
-                    // changing the ply by a large number doesn't seem to gain elo, even though (because?) this should prevent overwriting killer moves
+                    //int reduction = 3 + remainingDepth / 5;
+                    // changing the ply by a large number doesn't seem to gain elo, even though this should prevent overwriting killer moves
                     search(beta, 3 + remainingDepth / 5, false);
                     board.UndoSkipTurn();
                     if (score >= beta)
@@ -252,18 +250,21 @@ public class MyBot : IChessBot
                 }
             }
             
-            // the following is 16 tokens for a slight (not passing SPRT after 10k games) elo improvement
-            // killers[2 * ply + 2] = killers[2 * ply + 3] = default;
+            // the following is 13 tokens for a slight (not passing SPRT after 10k games) elo improvement
+            // killers[killerIdx + 2] = killers[killerIdx + 3] = default;
+
+            // generate moves
+            var legalMoves = board.GetLegalMoves(inQsearch);
 
             // using this manual for loop and Array.Sort gained about 50 elo compared to OrderByDescending
-            var scores = new int[numMoves];
+            var scores = new int[legalMoves.Length];
             foreach (Move move in legalMoves)
             {
                 scores[moveIdx++] = -(move == ttEntry.bestMove ? 1_000_000_000 :
                     move.IsCapture ? (int)move.CapturePieceType * 1_048_576  - (int)move.MovePieceType :
                     // Giving the first killer a higher score doesn't seem to gain after 10k games
-                    move == killers[2 * ply] || move == killers[2 * ply + 1] ? 1_000_000 :
-                    history[board.IsWhiteToMove ? 1 : 0, (int)move.MovePieceType, move.TargetSquare.Index]);
+                    move == killers[killerIdx] ? 1_000_001 : move == killers[killerIdx + 1] ? 1_000_000 :
+                    history[ToInt32(board.IsWhiteToMove), (int)move.MovePieceType, move.TargetSquare.Index]);
             }
 
             Array.Sort(scores, legalMoves);
@@ -286,7 +287,7 @@ public class MyBot : IChessBot
                         ?
                         //reduction = 3; // TODO: Once the engine is better, test with viri values: (int)(0.77 + Log(remainingDepth) * Log(i) / 2.36);
                         //reduction -= isPvNode ? 1 : 0;
-                        Clamp(4 - (isNotPvNode ? 0 : 1), 1, remainingDepth - 1)
+                        Clamp(3 + ToInt32(isNotPvNode), 1, remainingDepth - 1)
                         : 1;
                     search(alpha + 1, reduction);
                     if (alpha < score && score < beta)
@@ -310,14 +311,14 @@ public class MyBot : IChessBot
 #endif
                         if (!move.IsCapture)
                         {
-                            if (move != killers[2 * ply])
+                            if (move != killers[killerIdx])
                             {
-                                killers[2 * ply + 1] = killers[2 * ply];
-                                killers[2 * ply] = move;
+                                killers[killerIdx + 1] = killers[killerIdx];
+                                killers[killerIdx] = move;
                             }
 
                             // gravity didn't gain (TODO: Retest later when the engine is better), but history still gained quite a bit
-                            history[board.IsWhiteToMove ? 1 : 0, (int)move.MovePieceType, move.TargetSquare.Index]
+                            history[ToInt32(board.IsWhiteToMove), (int)move.MovePieceType, move.TargetSquare.Index]
                                 += remainingDepth * remainingDepth;
                         }
 
@@ -326,21 +327,23 @@ public class MyBot : IChessBot
                 }
             }
 
+            if (moveIdx == 0)
+                return inQsearch ? bestScore : inCheck ? ply - 30_000 : 0; // being checkmated later is better (as is checkmating earlier)
+
             if (ply == 0) bestRootMove = localBestMove;
-            // not updating the tt move in qsearch gives close to 20 elo (with close to 20 elo error bounds, but measured two times with 1000 games each)
-            // TODO: Retest! (proper sprt this time)
-            if (!inQsearch)
-                ttEntry = new(board.ZobristKey, localBestMove, (short)bestScore,
-                    (sbyte)(bestScore <= originalAlpha ? 0 : bestScore >= beta ? 2 : 1), (sbyte)remainingDepth);
+            // not updating the tt move in qsearch gives close to 20 elo (with close to 20 elo error bounds, but meassured two times with 1000 games each)
+            ttEntry = new(board.ZobristKey, localBestMove, (short)bestScore,
+                (sbyte)(bestScore <= originalAlpha ? 2 : ToSByte(bestScore >= beta)), (sbyte)remainingDepth);
 
             return bestScore;
         }
 
 
-        // Eval very loosely based on JW's example bot (ie tier 2 bot)
+        // Eval loosely based on JW's example bot (ie tier 2 bot)
         int eval()
         {
             bool ourColor = board.IsWhiteToMove;
+            // int phase = 0, mg = 10, eg = 5;
             int phase = 0, mg = 7, eg = 7;
             foreach (bool isWhite in new[] { ourColor, !ourColor })
             {
@@ -351,7 +354,7 @@ public class MyBot : IChessBot
                     {
                         phase += pesto[768 + piece];
                         int psqtIndex = BitboardHelper.ClearAndGetIndexOfLSB(ref mask) ^
-                                        (isWhite ? 56 : 0) + 64 * piece;
+                                        56 * ToInt32(isWhite) + 64 * piece;
                         mg += pesto[psqtIndex] + (47 << piece) + pesto[piece + 776];
                         eg += pesto[psqtIndex + 384] + (47 << piece) + pesto[piece + 782];
 

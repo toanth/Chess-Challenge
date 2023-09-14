@@ -7,22 +7,22 @@ using ChessChallenge.API;
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
-using System.Linq;
+using System.Linq; // TODO: Not necesdsary except for decompression
 using static System.Math;
+using static System.Convert;
 
 namespace ChessChallenge.Example
 {
 
     public class EvilBot : IChessBot
     {
-
     // TODO: FP, LMP
     
     public record struct TTEntry (
         ulong key,
         Move bestMove,
         short score,
-        sbyte flag,
+        sbyte flag, // 2 = upper, 0 = exact, 1 = lower
         sbyte depth
     );
 
@@ -33,6 +33,8 @@ namespace ChessChallenge.Example
 
     private TTEntry[] tt = new TTEntry[0x80_0000];
 
+    Move[] killers = new Move[256];
+        
     private Move bestRootMove;
 
 #if PRINT_DEBUG_INFO
@@ -122,10 +124,8 @@ namespace ChessChallenge.Example
 
         int[,,] history = new int[2, 7, 64];
         
-        Move[] killers = new Move[256];
-        
         // starting with depth 0 wouldn't only be useless but also incorrect due to assumptions in negamax
-        for (int depth = 1, alpha = -30_000, beta = 30_000; depth < 50 && !shouldStopThinking();)
+        for (int depth = 1, alpha = -30_000, beta = 30_000; depth < 64 && !shouldStopThinking();)
         {
             // TODO: This should be bugged when out of time when the last score failed low on the asp window
             int score = negamax(depth, alpha, beta, 0, false);
@@ -193,23 +193,18 @@ namespace ChessChallenge.Example
 #endif
 
             // Using stackalloc doesn't gain elo
-            bool /*isRoot = ply == 0, // doesn't save tokens*/
-                inQsearch = remainingDepth <= 0,
-                isNotPvNode = alpha + 1 >= beta;
-            var legalMoves = board.GetLegalMoves(inQsearch);
-            int numMoves = legalMoves.Length,
-                bestScore = -32_000,
+            bool inQsearch = remainingDepth <= 0,
+                isNotPvNode = alpha + 1 >= beta,
+                inCheck = board.IsInCheck();
+
+            int bestScore = -32_000,
                 originalAlpha = alpha,
                 standPat = eval(),
                 moveIdx = 0,
+                killerIdx = 2 * ply,
                 score;
-            // calculating IsInCheck() before GetLegalMoves() loses very approx. 10 elo due to extra work
-            bool inCheck = board.IsInCheck();
 
-            // replacing those functions with legalMoves.Length == 0 checks (plus repetition detection, insufficient material) didn't gain elo, TODO: Retest eventually
-            if (board.IsInCheckmate())
-                return ply - 30_000; // being checkmated later is better (as is checkmating earlier)
-            if (board.IsDraw())
+            if (ply > 0 && board.IsRepeatedPosition())
                 return 0;
 
             if (inQsearch)
@@ -220,18 +215,17 @@ namespace ChessChallenge.Example
             }
 
             // Check Extensions
-            if (inCheck) ++remainingDepth;
+            if (inCheck) ++remainingDepth; // TODO: Do this before setting qsearch to disallow dropping to qsearch in check? Probably unimportant
 
             // TODO: Use tt for stand pat score?
             ref TTEntry ttEntry = ref tt[board.ZobristKey & 0x7f_ffff];
 
             if (isNotPvNode && ttEntry.depth >= remainingDepth && ttEntry.key == board.ZobristKey)
             {
-                if (ttEntry.flag > 0) alpha = Max(alpha, ttEntry.score); // TODO: Also set bestScore?
-                if (ttEntry.flag < 2) beta = Min(beta, ttEntry.score);
+                if (ttEntry.flag == 1 && ttEntry.score >= beta
+                ||  ttEntry.flag == 2 && ttEntry.score <= alpha
+                ||  ttEntry.flag == 0) return ttEntry.score;
             }
-
-            if (alpha >= beta) return alpha;
 
             int search(int minusNewAlpha, int reduction = 1, bool allowNullMovePruning = true) =>
                 score = -negamax(remainingDepth - reduction, -minusNewAlpha, -alpha, ply + 1, allowNullMovePruning);
@@ -255,18 +249,21 @@ namespace ChessChallenge.Example
                 }
             }
             
-            // the following is 16 tokens for a slight (not passing SPRT after 10k games) elo improvement
-            killers[2 * ply + 2] = killers[2 * ply + 3] = default;
+            // the following is 13 tokens for a slight (not passing SPRT after 10k games) elo improvement
+            // killers[killerIdx + 2] = killers[killerIdx + 3] = default;
+
+            // generate moves
+            var legalMoves = board.GetLegalMoves(inQsearch);
 
             // using this manual for loop and Array.Sort gained about 50 elo compared to OrderByDescending
-            var scores = new int[numMoves];
+            var scores = new int[legalMoves.Length];
             foreach (Move move in legalMoves)
             {
                 scores[moveIdx++] = -(move == ttEntry.bestMove ? 1_000_000_000 :
                     move.IsCapture ? (int)move.CapturePieceType * 1_048_576  - (int)move.MovePieceType :
-                    // Giving the fitst killer a higher score doesn't seem to gain after 10k games
-                    move == killers[2 * ply] ? 1_000_001 : move == killers[2 * ply + 1] ? 1_000_000 :
-                    history[board.IsWhiteToMove ? 1 : 0, (int)move.MovePieceType, move.TargetSquare.Index]);
+                    // Giving the first killer a higher score doesn't seem to gain after 10k games
+                    move == killers[killerIdx] ? 1_000_001 : move == killers[killerIdx + 1] ? 1_000_000 :
+                    history[ToInt32(board.IsWhiteToMove), (int)move.MovePieceType, move.TargetSquare.Index]);
             }
 
             Array.Sort(scores, legalMoves);
@@ -289,7 +286,7 @@ namespace ChessChallenge.Example
                         ?
                         //reduction = 3; // TODO: Once the engine is better, test with viri values: (int)(0.77 + Log(remainingDepth) * Log(i) / 2.36);
                         //reduction -= isPvNode ? 1 : 0;
-                        Clamp(4 - (isNotPvNode ? 0 : 1), 1, remainingDepth - 1)
+                        Clamp(3 + ToInt32(isNotPvNode), 1, remainingDepth - 1)
                         : 1;
                     search(alpha + 1, reduction);
                     if (alpha < score && score < beta)
@@ -313,14 +310,14 @@ namespace ChessChallenge.Example
 #endif
                         if (!move.IsCapture)
                         {
-                            if (move != killers[2 * ply])
+                            if (move != killers[killerIdx])
                             {
-                                killers[2 * ply + 1] = killers[2 * ply];
-                                killers[2 * ply] = move;
+                                killers[killerIdx + 1] = killers[killerIdx];
+                                killers[killerIdx] = move;
                             }
 
                             // gravity didn't gain (TODO: Retest later when the engine is better), but history still gained quite a bit
-                            history[board.IsWhiteToMove ? 1 : 0, (int)move.MovePieceType, move.TargetSquare.Index]
+                            history[ToInt32(board.IsWhiteToMove), (int)move.MovePieceType, move.TargetSquare.Index]
                                 += remainingDepth * remainingDepth;
                         }
 
@@ -329,17 +326,19 @@ namespace ChessChallenge.Example
                 }
             }
 
+            if (moveIdx == 0)
+                return inQsearch ? bestScore : inCheck ? ply - 30_000 : 0; // being checkmated later is better (as is checkmating earlier)
+
             if (ply == 0) bestRootMove = localBestMove;
             // not updating the tt move in qsearch gives close to 20 elo (with close to 20 elo error bounds, but meassured two times with 1000 games each)
-            if (!inQsearch)
-                ttEntry = new(board.ZobristKey, localBestMove, (short)bestScore,
-                    (sbyte)(bestScore <= originalAlpha ? 0 : bestScore >= beta ? 2 : 1), (sbyte)remainingDepth);
+            ttEntry = new(board.ZobristKey, localBestMove, (short)bestScore,
+                (sbyte)(bestScore <= originalAlpha ? 2 : ToSByte(bestScore >= beta)), (sbyte)remainingDepth);
 
             return bestScore;
         }
 
 
-        // for the time being, this is very closely based on JW's example bot (ie tier 2 bot)
+        // Eval loosely based on JW's example bot (ie tier 2 bot)
         int eval()
         {
             bool ourColor = board.IsWhiteToMove;
@@ -354,7 +353,7 @@ namespace ChessChallenge.Example
                     {
                         phase += pesto[768 + piece];
                         int psqtIndex = BitboardHelper.ClearAndGetIndexOfLSB(ref mask) ^
-                                        (isWhite ? 56 : 0) + 64 * piece;
+                                        56 * ToInt32(isWhite) + 64 * piece;
                         mg += pesto[psqtIndex] + (47 << piece) + pesto[piece + 776];
                         eg += pesto[psqtIndex + 384] + (47 << piece) + pesto[piece + 782];
 
