@@ -228,7 +228,7 @@ public class MyBot : IChessBot
                 if (standPat >= beta) return standPat;
                 if (alpha < standPat) alpha = standPat;
             }
-
+            
             // Check Extensions
             if (inCheck) ++remainingDepth; // TODO: Do this before setting qsearch to disallow dropping to qsearch in check? Probably unimportant
 
@@ -236,12 +236,10 @@ public class MyBot : IChessBot
             // TODO: Use tuple as TT entries
             ref TTEntry ttEntry = ref tt[board.ZobristKey & 0x7f_ffff];
 
-            if (isNotPvNode && ttEntry.depth >= remainingDepth && ttEntry.key == board.ZobristKey)
-            {
-                if (ttEntry.flag == 0 && ttEntry.score >= beta
-                ||  ttEntry.flag == 1 && ttEntry.score <= alpha
-                ||  ttEntry.flag > 1) return ttEntry.score;
-            }
+            if (isNotPvNode && ttEntry.depth >= remainingDepth && ttEntry.key == board.ZobristKey
+                    && ttEntry.flag != 0 | ttEntry.score >= beta // Flag cut-off condition by Broxholme
+                    && ttEntry.flag != 1 | ttEntry.score <= alpha)
+                return ttEntry.score;
 
             int search(int minusNewAlpha, int reduction = 1, bool allowNullMovePruning = true) =>
                 score = -negamax(remainingDepth - reduction, -minusNewAlpha, -alpha, halfPly + 2, allowNullMovePruning);
