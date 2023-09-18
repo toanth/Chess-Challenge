@@ -226,9 +226,9 @@ public class MyBot : IChessBot
 
     private TTEntry[] tt = new TTEntry[0x80_0000];
 
-    private Move[] killers = new Move[256];
+    private Move[] killers = new Move[256];  // TODO: Move into Think() again to save 1 token?
         
-    private Move bestRootMove;
+    private Move bestRootMove, chosenMove;
 
     private bool stmColor;
 
@@ -335,17 +335,23 @@ public class MyBot : IChessBot
             int score = negamax(depth, alpha, beta, 0, false);
             // excluding checkmate scores was inconclusive after 6000 games, so likely not worth the tokens
             if (score <= alpha) alpha += score - alpha;
-            else if (score >= beta) beta += score - beta;
+            else if (score >= beta) {
+                beta += score - beta;
+                chosenMove = bestRootMove; 
+            }
             else
             {
 #if PRINT_DEBUG_INFO
-                lastDepth = depth - 1;
-                if (score != 12345) lastScore = score;
                 Console.WriteLine("Depth {0}, score {1}, best {2}, nodes {3}k, time {4}, nps {5}k",
-                    depth, lastScore, bestRootMove, Round(allNodeCtr / 1000.0), timer.MillisecondsElapsedThisTurn,
+                    depth, score, bestRootMove, Round(allNodeCtr / 1000.0), timer.MillisecondsElapsedThisTurn,
                     Round(allNodeCtr / (double)timer.MillisecondsElapsedThisTurn, 1));
 #endif
+#if GUI_INFO
+                lastDepth = depth;
+                if (score != 12345) lastScore = score;
+#endif
                 alpha = beta = score;
+                chosenMove = bestRootMove;
                 ++depth;
             }
 
@@ -355,7 +361,6 @@ public class MyBot : IChessBot
             // tested values: 8, 15, 20, 30 (15 being the second best)
             alpha -= 20;
             beta += 20;
-            // !! TODO: Bug in eval score! !!
         }
 
 #if PRINT_DEBUG_INFO
@@ -392,7 +397,7 @@ public class MyBot : IChessBot
     }
 #endif
 
-        return bestRootMove;
+        return chosenMove;
 
         // halfPly (ie quarter move) instead of ply to save tokens when accessing killers
         int negamax(int remainingDepth, int alpha, int beta, int halfPly, bool allowNmp)
@@ -462,7 +467,7 @@ public class MyBot : IChessBot
             }
             
             // the following is 13 tokens for a slight (not passing SPRT after 10k games) elo improvement
-            // killers[killerIdx + 2] = killers[killerIdx + 3] = default;
+            // killers[halfPly + 2] = killers[halfPly + 3] = default;
 
             // generate moves
             var legalMoves = board.GetLegalMoves(inQsearch);
@@ -528,6 +533,7 @@ public class MyBot : IChessBot
                 if (score > alpha)
                 {
                     localBestMove = move;
+                    if (halfPly == 0) bestRootMove = localBestMove; // updating here (instead of at the end) together with the aw fix is better, now testing without the aw fix
                     alpha = score;
                     ++flag;
                     if (score >= beta)
@@ -545,6 +551,7 @@ public class MyBot : IChessBot
                             }
 
                             // gravity didn't gain (TODO: Retest later when the engine is better), but history still gained quite a bit
+                            // TODO: Test from-to instead of stm-piece-to
                             history[ToInt32(stmColor), (int)move.MovePieceType, move.TargetSquare.Index]
                                 += remainingDepth * remainingDepth;
                         }
@@ -559,9 +566,6 @@ public class MyBot : IChessBot
             if (moveIdx == 0)
                 return inQsearch ? bestScore : inCheck ? halfPly - 30_000 : 0; // being checkmated later is better (as is checkmating earlier)
 
-            if (halfPly == 0) bestRootMove = localBestMove;
-            // not updating the tt move in qsearch gives close to 20 elo (with close to 20 elo error bounds, but measured two times with 1000 games each)
-            // TODO: Retest with proper SPRT
             ttEntry = new(board.ZobristKey, localBestMove, (short)bestScore,
                 flag, (sbyte)remainingDepth);
 
