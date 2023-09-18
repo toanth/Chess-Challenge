@@ -225,8 +225,6 @@ public class MyBot : IChessBot
     //private Move[] ttMoves = new Move[0x200_0000];
 
     private TTEntry[] tt = new TTEntry[0x80_0000];
-
-    private Move[] killers = new Move[256];  // TODO: Move into Think() again to save 1 token?
         
     private Move bestRootMove, chosenMove;
 
@@ -326,7 +324,8 @@ public class MyBot : IChessBot
             // long games in winning positions but as we improve our engine we should see less time trouble overall.
             // timer.MillisecondsElapsedThisTurn > timer.MillisecondsRemaining / 32;
 
-        int[,,] history = new int[2, 7, 64];
+        var history = new int[2, 7, 64];
+        var killers = new Move[256];
         
         // starting with depth 0 wouldn't only be useless but also incorrect due to assumptions in negamax
         for (int depth = 1, alpha = -30_000, beta = 30_000; depth < 64 && timer.MillisecondsElapsedThisTurn <= timer.MillisecondsRemaining / 32;)
@@ -502,24 +501,15 @@ public class MyBot : IChessBot
                 else
                 {
                     // Late Move Reductions (LMR), needs further parameter tuning. `reduction` is R + 1 to save tokens
-                    // TODO: Once the engine is better, test with viri values: (int)(0.77 + Log(remainingDepth) * Log(i) / 2.36);
                     search(alpha + 1, 
                         moveIdx >= (isNotPvNode ? 3 : 4)
                         && remainingDepth > 3
                         && !move.IsCapture
-                            ?  Clamp(3 + ToInt32(isNotPvNode), 1, remainingDepth - 1)
-                            // Clamp((int)(0.77 + Log(remainingDepth) * Log(moveIdx) / 2.36) + 1 - ToInt32(isNotPvNode), 1, remainingDepth - 1)
+                        // && !inCheck // TODO: Test enabling this (probably good)
+                            ?
+                            Clamp((int)(0.77 + Log(remainingDepth) * Log(moveIdx) / 2.36) + 1 - ToInt32(isNotPvNode), 1, remainingDepth - 1)
                             : 1
-                        );
-                    // search(alpha + 1, // !! TODO: Test if this is better!
-                    //     moveIdx >= (isNotPvNode ? 4 : 6)
-                    //                 && remainingDepth > 3
-                    //                 && !move.IsCapture
-                    //                 && !inCheck
-                    //     ?
-                    //     Clamp(3 + ToInt32(isNotPvNode), 1, remainingDepth - 1)
-                    //     : 1
-                    //     );
+                    );
                     if (alpha < score && score < beta)
                         search(beta);
                 }
