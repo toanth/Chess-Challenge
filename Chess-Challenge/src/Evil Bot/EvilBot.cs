@@ -326,10 +326,11 @@ namespace ChessChallenge.Example
         var killers = new Move[256];
         
         // starting with depth 0 wouldn't only be useless but also incorrect due to assumptions in negamax
-        for (int depth = 1, alpha = -30_000, beta = 30_000; depth < 64 && timer.MillisecondsElapsedThisTurn <= timer.MillisecondsRemaining / 32;)
+        for (int depth = 1, alpha = -30_000, beta = 30_000; depth < 64 && timer.MillisecondsElapsedThisTurn <= timer.MillisecondsRemaining / 64;)
         {
             // TODO: This should be bugged when out of time when the last score failed low on the asp window
             int score = negamax(depth, alpha, beta, 0, false);
+            // TODO: Test returning here in case of a soft timeout?
             // excluding checkmate scores was inconclusive after 6000 games, so likely not worth the tokens
             if (score <= alpha) alpha += score - alpha;
             else if (score >= beta) {
@@ -409,11 +410,10 @@ namespace ChessChallenge.Example
             bool inQsearch = remainingDepth <= 0,
                 isNotPvNode = alpha + 1 >= beta,
                 inCheck = board.IsInCheck(),
-                canPrune = isNotPvNode && !inCheck;
+                allowPruning = isNotPvNode && !inCheck;
             stmColor = board.IsWhiteToMove;
 
             int bestScore = -32_000,
-                // originalAlpha = alpha,
                 standPat = eval(),
                 moveIdx = 0,
                 score;
@@ -444,7 +444,7 @@ namespace ChessChallenge.Example
             int search(int minusNewAlpha, int reduction = 1, bool allowNullMovePruning = true) =>
                 score = -negamax(remainingDepth - reduction, -minusNewAlpha, -alpha, halfPly + 2, allowNullMovePruning);
 
-            if (canPrune)
+            if (allowPruning)
             {
                 // Reverse Futility Pruning (RFP) // TODO: Don't do in check? Increase depth?
                 if (!inQsearch && remainingDepth < 5 && standPat >= beta + 64 * remainingDepth)
@@ -487,10 +487,10 @@ namespace ChessChallenge.Example
             foreach (Move move in legalMoves)
             {
                 // TODO: Better Futility Pruning (FP) / Late Move Pruning (LMP)
-                // if (remainingDepth <= 5 && bestScore > -29_000 && canPrune
+                // if (remainingDepth <= 5 && bestScore > -29_000 && allowPruning
                 //     && moveIdx > remainingDepth * remainingDepth + 4 && scores[moveIdx] < 1_000_000 /*|| standPat + 500 + 128 * remainingDepth < alpha*/) break;
                 // Futility Pruning (FP). Probably needs more tuning
-                if (remainingDepth <= 5 && bestScore > -29_000 && canPrune
+                if (remainingDepth <= 5 && bestScore > -29_000 && allowPruning
                     && scores[moveIdx] > -1_000_000 && standPat + 300 + 64 * remainingDepth < alpha) break;
                 board.MakeMove(move);
                 // pvs like this is -7 +- 20 elo after 1000 games; adding inQsearch || ... doesn't change that, nor does move == ttMove
@@ -499,31 +499,23 @@ namespace ChessChallenge.Example
                 else
                 {
                     // Late Move Reductions (LMR), needs further parameter tuning. `reduction` is R + 1 to save tokens
-                    // TODO: Once the engine is better, test with viri values: (int)(0.77 + Log(remainingDepth) * Log(i) / 2.36);
                     search(alpha + 1, 
-                        moveIdx >= (isNotPvNode ? 3 : 4)
-                        && remainingDepth > 3
-                        && !move.IsCapture
-                            ?  // Clamp(3 + ToInt32(isNotPvNode), 1, remainingDepth - 1)
-                            Clamp((int)(0.77 + Log(remainingDepth) * Log(moveIdx) / 2.36) + 1 - ToInt32(isNotPvNode), 1, remainingDepth - 1)
-                            : 1
-                        );
-                    // search(alpha + 1, // !! TODO: Test if this is better!
-                    //     moveIdx >= (isNotPvNode ? 4 : 6)
-                    //                 && remainingDepth > 3
-                    //                 && !move.IsCapture
-                    //                 && !inCheck
-                    //     ?
-                    //     Clamp(3 + ToInt32(isNotPvNode), 1, remainingDepth - 1)
-                    //     : 1
-                    //     );
+                        moveIdx < (isNotPvNode ? 3 : 4)
+                        || remainingDepth <= 3
+                        || move.IsCapture
+                        // || inCheck // the inCheck condition doesn't seem to gain, failed a [0,10] SPRT with +1.6 after 5.7k games
+                            ? 1 
+                            // reduction values originally from the Viridithas engine, which seem pretty widely used by now
+                            // TODO: Precompute and compress the individual Log values (should take up at most 4 bits each)? Probably far too token-hungry
+                            : Clamp((int)(0.77 + Log(remainingDepth) * Log(moveIdx) / 2.36) + 1 - ToInt32(isNotPvNode), 1, remainingDepth - 1)
+                    );
                     if (alpha < score && score < beta)
                         search(beta);
                 }
 
                 board.UndoMove(move);
 
-                if (timer.MillisecondsElapsedThisTurn > timer.MillisecondsRemaining / 32)
+                if (timer.MillisecondsElapsedThisTurn * 24 > timer.MillisecondsRemaining) // TODO: Test with 16
                     return 12345; // the value won't be used, so use a canary to detect bugs
 
                 bestScore = Max(score, bestScore);
