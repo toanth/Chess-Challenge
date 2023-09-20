@@ -517,7 +517,7 @@ public class MyBot : IChessBot
 
                 board.UndoMove(move);
 
-                if (timer.MillisecondsElapsedThisTurn * 24 > timer.MillisecondsRemaining) // TODO: Test with 16
+                if (timer.MillisecondsElapsedThisTurn * 16 > timer.MillisecondsRemaining) // TODO: Test with 16
                     return 12345; // the value won't be used, so use a canary to detect bugs
 
                 bestScore = Max(score, bestScore);
