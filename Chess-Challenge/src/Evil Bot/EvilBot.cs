@@ -486,12 +486,11 @@ namespace ChessChallenge.Example
             moveIdx = 0;
             foreach (Move move in legalMoves)
             {
-                // TODO: Better Futility Pruning (FP) / Late Move Pruning (LMP)
                 // if (remainingDepth <= 5 && bestScore > -29_000 && allowPruning
                 //     && moveIdx > remainingDepth * remainingDepth + 4 && scores[moveIdx] < 1_000_000 /*|| standPat + 500 + 128 * remainingDepth < alpha*/) break;
-                // Futility Pruning (FP). Probably needs more tuning
+                // Futility Pruning (FP) and Late Move Pruning (LMP). Would probably benefit from more tuning
                 if (remainingDepth <= 5 && bestScore > -29_000 && allowPruning
-                    && scores[moveIdx] > -1_000_000 && standPat + 300 + 64 * remainingDepth < alpha) break;
+                    && (scores[moveIdx] > -1_000_000 && standPat + 300 + 64 * remainingDepth < alpha || moveIdx > 7 + remainingDepth * remainingDepth)) break;
                 board.MakeMove(move);
                 // pvs like this is -7 +- 20 elo after 1000 games; adding inQsearch || ... doesn't change that, nor does move == ttMove
                 if (moveIdx++ == 0)
@@ -515,41 +514,40 @@ namespace ChessChallenge.Example
 
                 board.UndoMove(move);
 
-                if (timer.MillisecondsElapsedThisTurn * 24 > timer.MillisecondsRemaining) // TODO: Test with 16
+                if (timer.MillisecondsElapsedThisTurn * 16 > timer.MillisecondsRemaining) // TODO: Test with 16
                     return 12345; // the value won't be used, so use a canary to detect bugs
 
                 bestScore = Max(score, bestScore);
-                if (score > alpha)
-                {
-                    localBestMove = move;
-                    if (halfPly == 0) bestRootMove = localBestMove; // updating here (instead of at the end) together with the aw fix is better, now testing without the aw fix
-                    alpha = score;
-                    ++flag;
-                    if (score >= beta)
-                    {
+                if (score <= alpha) continue;
+                
+                localBestMove = move;
+                if (halfPly == 0) bestRootMove = localBestMove; // updating here (instead of at the end) together with the aw fix is better, now testing without the aw fix
+                alpha = score;
+                ++flag;
+                if (score < beta) continue;
+                
 #if PRINT_DEBUG_INFO
-                    ++betaCutoffCtr;
-                    if (remainingDepth > 1) ++parentOfInnerNodeBetaCutoffCtr;
+            ++betaCutoffCtr;
+            if (remainingDepth > 1) ++parentOfInnerNodeBetaCutoffCtr;
 #endif
-                        if (!move.IsCapture)
-                        {
-                            if (move != killers[halfPly]) // TODO: Test using only 1 killer move
-                            {
-                                killers[halfPly + 1] = killers[halfPly];
-                                killers[halfPly] = move;
-                            }
-
-                            // gravity didn't gain (TODO: Retest later when the engine is better), but history still gained quite a bit
-                            // TODO: Test from-to instead of stm-piece-to
-                            history[ToInt32(stmColor), (int)move.MovePieceType, move.TargetSquare.Index]
-                                += remainingDepth * remainingDepth;
-                        }
-
-                        flag = 0;
-
-                        break;
+                if (!move.IsCapture)
+                {
+                    if (move != killers[halfPly]) // TODO: Test using only 1 killer move
+                    {
+                        killers[halfPly + 1] = killers[halfPly];
+                        killers[halfPly] = move;
                     }
+
+                    // gravity didn't gain (TODO: Retest later when the engine is better), but history still gained quite a bit
+                    // TODO: Test from-to instead of stm-piece-to
+                    // TODO: Test reducing the history score for moves that don't raise alpha
+                    history[ToInt32(stmColor), (int)move.MovePieceType, move.TargetSquare.Index]
+                        += remainingDepth * remainingDepth;
                 }
+
+                flag = 0;
+
+                break;
             }
 
             if (moveIdx == 0)
@@ -590,7 +588,6 @@ namespace ChessChallenge.Example
         // Eval loosely based on JW's example bot (ie tier 2 bot)
         int eval()
         {
-            // bool stmColor = board.IsWhiteToMove;
             int phase = 0, mg = 7, eg = 7;
             foreach (bool isWhite in new[] { stmColor, !stmColor })
             {

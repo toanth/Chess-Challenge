@@ -209,10 +209,7 @@ public class MyBot : IChessBot
     //     };
 
     
-    // TODO: Better TM
-    // TODO: FP, LMP
-    
-    public record struct TTEntry (
+    record struct TTEntry (
         ulong key,
         Move bestMove,
         short score,
@@ -330,13 +327,12 @@ public class MyBot : IChessBot
         // starting with depth 0 wouldn't only be useless but also incorrect due to assumptions in negamax
         for (int depth = 1, alpha = -30_000, beta = 30_000; depth < 64 && timer.MillisecondsElapsedThisTurn <= timer.MillisecondsRemaining / 64;)
         {
-            // TODO: This should be bugged when out of time when the last score failed low on the asp window
             int score = negamax(depth, alpha, beta, 0, false);
             // TODO: Test returning here in case of a soft timeout?
             // excluding checkmate scores was inconclusive after 6000 games, so likely not worth the tokens
-            if (score <= alpha) alpha += score - alpha;
+            if (score <= alpha) alpha = score;
             else if (score >= beta) {
-                beta += score - beta;
+                beta = score;
                 chosenMove = bestRootMove; 
             }
             else
@@ -488,12 +484,11 @@ public class MyBot : IChessBot
             moveIdx = 0;
             foreach (Move move in legalMoves)
             {
-                // TODO: Better Futility Pruning (FP) / Late Move Pruning (LMP)
                 // if (remainingDepth <= 5 && bestScore > -29_000 && allowPruning
                 //     && moveIdx > remainingDepth * remainingDepth + 4 && scores[moveIdx] < 1_000_000 /*|| standPat + 500 + 128 * remainingDepth < alpha*/) break;
-                // Futility Pruning (FP). Probably needs more tuning
+                // Futility Pruning (FP) and Late Move Pruning (LMP). Would probably benefit from more tuning
                 if (remainingDepth <= 5 && bestScore > -29_000 && allowPruning
-                    && scores[moveIdx] > -1_000_000 && standPat + 300 + 64 * remainingDepth < alpha) break;
+                    && (scores[moveIdx] > -1_000_000 && standPat + 300 + 64 * remainingDepth < alpha || moveIdx > 7 + remainingDepth * remainingDepth)) break;
                 board.MakeMove(move);
                 // pvs like this is -7 +- 20 elo after 1000 games; adding inQsearch || ... doesn't change that, nor does move == ttMove
                 if (moveIdx++ == 0)
@@ -521,37 +516,36 @@ public class MyBot : IChessBot
                     return 12345; // the value won't be used, so use a canary to detect bugs
 
                 bestScore = Max(score, bestScore);
-                if (score > alpha)
-                {
-                    localBestMove = move;
-                    if (halfPly == 0) bestRootMove = localBestMove; // updating here (instead of at the end) together with the aw fix is better, now testing without the aw fix
-                    alpha = score;
-                    ++flag;
-                    if (score >= beta)
-                    {
+                if (score <= alpha) continue;
+                
+                localBestMove = move;
+                if (halfPly == 0) bestRootMove = localBestMove; // updating here (instead of at the end) together with the aw fix is better, now testing without the aw fix
+                alpha = score;
+                ++flag;
+                if (score < beta) continue;
+                
 #if PRINT_DEBUG_INFO
-                    ++betaCutoffCtr;
-                    if (remainingDepth > 1) ++parentOfInnerNodeBetaCutoffCtr;
+            ++betaCutoffCtr;
+            if (remainingDepth > 1) ++parentOfInnerNodeBetaCutoffCtr;
 #endif
-                        if (!move.IsCapture)
-                        {
-                            if (move != killers[halfPly]) // TODO: Test using only 1 killer move
-                            {
-                                killers[halfPly + 1] = killers[halfPly];
-                                killers[halfPly] = move;
-                            }
-
-                            // gravity didn't gain (TODO: Retest later when the engine is better), but history still gained quite a bit
-                            // TODO: Test from-to instead of stm-piece-to
-                            history[ToInt32(stmColor), (int)move.MovePieceType, move.TargetSquare.Index]
-                                += remainingDepth * remainingDepth;
-                        }
-
-                        flag = 0;
-
-                        break;
+                if (!move.IsCapture)
+                {
+                    if (move != killers[halfPly]) // TODO: Test using only 1 killer move
+                    {
+                        killers[halfPly + 1] = killers[halfPly];
+                        killers[halfPly] = move;
                     }
+
+                    // gravity didn't gain (TODO: Retest later when the engine is better), but history still gained quite a bit
+                    // TODO: Test from-to instead of stm-piece-to
+                    // TODO: Test reducing the history score for moves that don't raise alpha
+                    history[ToInt32(stmColor), (int)move.MovePieceType, move.TargetSquare.Index]
+                        += remainingDepth * remainingDepth;
                 }
+
+                flag = 0;
+
+                break;
             }
 
             if (moveIdx == 0)
@@ -592,14 +586,11 @@ public class MyBot : IChessBot
         // Eval loosely based on JW's example bot (ie tier 2 bot)
         int eval()
         {
-            // bool stmColor = board.IsWhiteToMove;
             int phase = 0, mg = 7, eg = 7;
             foreach (bool isWhite in new[] { stmColor, !stmColor })
             {
                 for (int piece = 6; --piece >= 0;)
-                {
-                    ulong mask = board.GetPieceBitboard((PieceType)piece + 1, isWhite);
-                    while (mask != 0)
+                    for (ulong mask = board.GetPieceBitboard((PieceType)piece + 1, isWhite); mask != 0; )
                     {
                         phase += pesto[768 + piece];
                         int psqtIndex = BitboardHelper.ClearAndGetIndexOfLSB(ref mask) ^
@@ -608,7 +599,6 @@ public class MyBot : IChessBot
                         mg += pesto[psqtIndex] + (47 << piece) + pesto[piece + 776];
                         eg += pesto[psqtIndex + 384] + (47 << piece) + pesto[piece + 782];
                     }
-                }
                 mg = -mg;
                 eg = -eg;
             }
