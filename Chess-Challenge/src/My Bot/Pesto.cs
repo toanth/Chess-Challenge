@@ -12,7 +12,8 @@ public class Pesto
     // Apparently, there's no way to make arrays immutable in C#, so these are functions that return temporaries.
     public static int[] piecePhase => new int[]{ 0, 1, 1, 2, 4, 0 };
         
-    public static int[] pestoPieceValues => new int[]{82, 337, 365, 477, 1025, 100,  94, 281, 297, 512, 936, 100};
+    public static int[] pestoPieceValues => new int[]{82, 337, 365, 477, 1025, 100,
+                                                      94, 281, 297, 512, 936, 100};
     
     public static int[][] pestoPsqts =>
         new int[][]{
@@ -88,30 +89,30 @@ public class Pesto
             //    1, 7, -8, -64, -43, -16, 9, 8,
             //    -15, 36, 12, -54, 8, -28, 24, 14
             //},
-            new int[]
-            {
-                // king mg, King on the Hill
-                7,  7,  7,  7,  7,  7,  7,  7,
-                6,  25, 50, 50, 50, 50, 25, 6,
-                5,  25, 85 ,150,150,85 ,25, 5,
-                4,  25, 100,200,200,100,25, 4,
-                3,  25, 100,200,200,100,25, 3,
-                2,  25, 75, 100,100,75 ,25, 2,
-                1,  25, 50, 50, 50, 50, 25, 1,
-                0,  0,  8,  0,  0,  0,  8,  0
-            },
-            // new int[]
-            // {
-            //     // king mg, Gᴀᴍʙᴏᴛ
-            //     255, 255, 255, 255, 255, 255, 255, 255,
-            //     255, 255, 255, 255, 255, 255, 255, 255,
-            //     255, 255, 255, 255, 255, 255, 255, 255,
-            //     250, 250, 250, 250, 250, 250, 250, 250,
-            //     200, 200, 200, 200, 200, 200, 200, 200,
-            //     100, 100, 100, 100, 100, 100, 100, 100,
-            //     10, 10, 50, 50, 50, 50, 30, 10,
-            //     0, 0, 0, 3, 5, 2, 0, 0
-            // },
+            //new int[]
+            //{
+            //    // king mg, King on the Hill
+            //    7,  7,  7,  7,  7,  7,  7,  7,
+            //    6,  25, 50, 50, 50, 50, 25, 6,
+            //    5,  25, 85 ,150,150,85 ,25, 5,
+            //    4,  25, 100,200,200,100,25, 4,
+            //    3,  25, 100,200,200,100,25, 3,
+            //    2,  25, 75, 100,100,75 ,25, 2,
+            //    1,  25, 50, 50, 50, 50, 25, 1,
+            //    0,  0,  8,  0,  0,  0,  8,  0
+            //},
+             new int[]
+             {
+                 // king mg, Gᴀᴍʙᴏᴛ
+                 255, 255, 255, 255, 255, 255, 255, 255,
+                 255, 255, 255, 255, 255, 255, 255, 255,
+                 255, 255, 255, 255, 255, 255, 255, 255,
+                 250, 250, 250, 250, 250, 250, 250, 250,
+                 200, 200, 200, 200, 200, 200, 200, 200,
+                 100, 100, 100, 100, 100, 100, 100, 100,
+                 10, 10, 50, 50, 50, 50, 30, 10,
+                 0, 0, 0, 3, 5, 2, 0, 0
+             },
             new int[]
             {
                 // pawn eg
@@ -186,63 +187,78 @@ public class Pesto
             },
         };
 
-    public static ulong[] createCompressedPesto()
+    public static Decimal[] createCompressedPesto()
     {
-        ulong[] compresto = new ulong[99];
+        // A decimal can store 12 easily accessible bytes, so the 12 * 64 + 6 + 2 * 6 bytes can be stored in 66 decimals
+        Decimal[] compresto = new Decimal[66];
         // create a local copy that can be modified and prevents inadvertently trying to modify the global array
         int[][] pestoPsqts = Pesto.pestoPsqts;
         int[] pestoPieceValues = Pesto.pestoPieceValues;
         
         // first, compress the piece square tables
         int numOverflows = 0;
+        byte[] decimalBytes = new byte[16];
+
+        Decimal bytesToDecimal()
+        {
+            int[] bytesAsInts = new int[4];
+            Buffer.BlockCopy(decimalBytes, 0, bytesAsInts, 0, 16);
+            return new decimal(bytesAsInts);
+        }
+
+        Debug.Assert(pestoPsqts.Length == 12);
         for (int table = 0; table < pestoPsqts.Length; ++table)
         {
             int offset = Math.Min(-pestoPsqts[table].Min(), 255 - pestoPsqts[table].Max());
             Debug.Assert(offset >= 0);
             pestoPieceValues[table] -= offset;
             pestoPsqts[table] = pestoPsqts[table].Select(val => val + offset).ToArray();
-            for (int row = 0; row < 8; ++row)
+        }
+        for (int row = 0; row < 8; ++row)
+        {
+            for (int column = 0; column < 8; ++column)
             {
-                ref ulong entry = ref compresto[row + table * 8];
-                entry = 0;
-                for (int column = 0; column < 8; ++column)
+                for (int table = 0; table < pestoPsqts.Length; ++table)
                 {
                     int pestoVal = pestoPsqts[table][row * 8 + column];
                     Debug.Assert(pestoVal <= 0xff);
                     if (pestoVal < 0)
                     {
                         ++numOverflows;
-                        pestoVal = 0; // clamp to zero 
+                        pestoVal = 0; // clamp to zero
                     }
-                    entry |= (ulong)(pestoVal & 0xff) << (8 * column);
+                    decimalBytes[table] = (byte)(pestoVal & 0xff);
                 }
+                compresto[(row * 8 + column)] = bytesToDecimal();
             }
         }
+        Debug.Assert(compresto[64] == 0);
         Debug.Assert(numOverflows == 1); // only the piece square value for knight on a8 in the middle game overflows
         
         // compress the phase values
         Debug.Assert(piecePhase.Length == 6);
         Debug.Assert(pestoPieceValues.Length == 12);
-        compresto[96] = compresto[97] = compresto[98] = 0;
         for (int i = 0; i < piecePhase.Length; ++i)
         {
             Debug.Assert(piecePhase[i] is >= 0 and <= 0xff);
-            compresto[96] |= ((ulong)piecePhase[i] & 0xff) << (8 * i);
+            decimalBytes[i] = (byte)(piecePhase[i] & 0xff);
         }
+        compresto[64] = bytesToDecimal();
         
         // compress the piece values
         for (int i = 0; i < pestoPieceValues.Length; ++i) // the king's value doesn't matter
         {
             int compressedPieceVal = pestoPieceValues[i] - (47 << (i % 6));
             Debug.Assert(compressedPieceVal is >= 0 and <= 0xff || i % 6 == 5);
-            compresto[i / 8 + 97] |= ((ulong)compressedPieceVal & 0xff) << (8 * (i % 8));
+            decimalBytes[i] = (byte)(compressedPieceVal & 0xff);
         }
+        compresto[65] = bytesToDecimal();
         testCompressedPesto(compresto);
         return compresto;
     }
 
     // This array contains not only the piece square tables, but also the phase weights and the piece values
-    // public static ulong[] compresto = createCompressedPesto();
+    // public static decimal[] compresto = createCompressedPesto();
     
     // uncompress it like this, but replace the `compresto` variable with the hard-coded values
     // (which you can get using the printCompressedPesto() function):
@@ -253,19 +269,20 @@ public class Pesto
         Console.WriteLine("{ " + string.Join(", ", createCompressedPesto()) + " }");
     }
     
-    public static void testCompressedPesto(ulong[] compresto)
+    public static void testCompressedPesto(Decimal[] compresto)
     {
-        byte[] uncompressedPesto = compresto.SelectMany(BitConverter.GetBytes).ToArray();
+        byte[] uncompressedPesto = compresto.SelectMany(decimal.GetBits).SelectMany(BitConverter.GetBytes).ToArray();
+        Debug.Assert(uncompressedPesto.Length == 66 * 16);
         for (int i = 0; i < piecePhase.Length; ++i)
         {
-            Debug.Assert(piecePhase[i] == uncompressedPesto[768 + i]);
+            Debug.Assert(piecePhase[i] == uncompressedPesto[64 * 16 + i]);
         }
 
         int[] uncompressedPieceValues = new int[pestoPieceValues.Length];
         Debug.Assert(pestoPieceValues.Length == 12);
         for (int i = 0; i < pestoPieceValues.Length; ++i)
         {
-            uncompressedPieceValues[i] = uncompressedPesto[776 + i] + (47 << (i % 6));
+            uncompressedPieceValues[i] = uncompressedPesto[65 * 16 + i] + (47 << (i % 6));
         }
         for (int i = 0; i < pestoPieceValues.Length; ++i)
         {
@@ -274,15 +291,20 @@ public class Pesto
                          pestoPieceValues[i] >= uncompressedPieceValues[i]);
         }
         
-        for (int i = 0; i < 64 * 12; ++i)
+        for (int square = 0; square < 64; ++square)
         {
-            int piece = i / 64;
-            if (i == 64) // the middle game knight on a8 value can't be represented properly in compressed pesto 
+            for (int piece = 0; piece < 12; ++piece)
             {
-                Debug.Assert(uncompressedPesto[i] == 0);
-                Debug.Assert(uncompressedPesto[i] + uncompressedPieceValues[piece] - 41 == pestoPsqts[piece][i % 64]+ pestoPieceValues[piece]);
-            } else if (piece % 6 != 5) { // king values differ, but that's fine because the white and black values cancel each other out 
-                Debug.Assert(uncompressedPesto[i] + uncompressedPieceValues[piece] == pestoPsqts[piece][i % 64] + pestoPieceValues[piece]);
+                int i = 16 * square + piece;
+                if (piece == 1 && square == 0) // the middle game knight on a8 value can't be represented properly in compressed pesto 
+                {
+                    Debug.Assert(uncompressedPesto[i] == 0);
+                    Debug.Assert(uncompressedPesto[i] + uncompressedPieceValues[piece] - 41 == pestoPsqts[piece][square] + pestoPieceValues[piece]);
+                }
+                else if (piece % 6 != 5)
+                { // king values differ, but that's fine because the white and black values cancel each other out 
+                    Debug.Assert(uncompressedPesto[i] + uncompressedPieceValues[piece] == pestoPsqts[piece][square] + pestoPieceValues[piece]);
+                }
             }
         }
     }
