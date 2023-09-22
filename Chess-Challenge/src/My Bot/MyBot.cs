@@ -403,16 +403,22 @@ public class MyBot : IChessBot
             if (remainingDepth > 0) ++nonQuiescentNodeCtr;
             if (remainingDepth > 1) ++parentOfInnerNodeCtr;
 #endif
+            
+            
+            ref TTEntry ttEntry = ref tt[board.ZobristKey & 0x7f_ffff];
 
             // Using stackalloc doesn't gain elo
             bool inQsearch = remainingDepth <= 0,
                 isNotPvNode = alpha + 1 >= beta,
                 inCheck = board.IsInCheck(),
-                allowPruning = isNotPvNode && !inCheck;
+                allowPruning = isNotPvNode && !inCheck,
+                trustTTScore = ttEntry.key == board.ZobristKey
+                    && ttEntry.flag != 0 | ttEntry.score >= beta // Token-efficient flag cut-off condition by Broxholme
+                    && ttEntry.flag != 1 | ttEntry.score <= alpha;
             stmColor = board.IsWhiteToMove;
 
             int bestScore = -32_000,
-                standPat = eval(),
+                standPat = trustTTScore ? ttEntry.score : eval(), // using the TT score passed the SPRT with a 20 elo gain
                 moveIdx = 0,
                 score;
 
@@ -421,22 +427,16 @@ public class MyBot : IChessBot
             if (halfPly > 0 && board.IsRepeatedPosition())
                 return 0;
 
-            if (inQsearch)
-            {
-                if (standPat >= beta) return standPat;
-                alpha = Max(alpha, bestScore = standPat);
-            }
+            if (inQsearch && (alpha = Max(alpha, bestScore = standPat)) >= beta)
+                return standPat;
             
             // Check Extensions
             if (inCheck) ++remainingDepth; // TODO: Do this before setting qsearch to disallow dropping to qsearch in check? Probably unimportant
 
             // TODO: Use tt for stand pat score?
             // TODO: Use tuple as TT entries
-            ref TTEntry ttEntry = ref tt[board.ZobristKey & 0x7f_ffff];
 
-            if (isNotPvNode && ttEntry.depth >= remainingDepth && ttEntry.key == board.ZobristKey
-                    && ttEntry.flag != 0 | ttEntry.score >= beta // Flag cut-off condition by Broxholme
-                    && ttEntry.flag != 1 | ttEntry.score <= alpha)
+            if (isNotPvNode && ttEntry.depth >= remainingDepth && trustTTScore)
                 return ttEntry.score;
 
             int search(int minusNewAlpha, int reduction = 1, bool allowNullMovePruning = true) =>
@@ -491,28 +491,23 @@ public class MyBot : IChessBot
                     && (scores[moveIdx] > -1_000_000 && standPat + 300 + 64 * remainingDepth < alpha || moveIdx > 7 + remainingDepth * remainingDepth)) break;
                 board.MakeMove(move);
                 // pvs like this is -7 +- 20 elo after 1000 games; adding inQsearch || ... doesn't change that, nor does move == ttMove
-                if (moveIdx++ == 0)
-                    search(beta);
-                else
-                {
+                if (moveIdx++ == 0 ||
                     // Late Move Reductions (LMR), needs further parameter tuning. `reduction` is R + 1 to save tokens
-                    search(alpha + 1, 
+                    alpha < search(alpha + 1, 
                         moveIdx < (isNotPvNode ? 3 : 4)
                         || remainingDepth <= 3
                         || move.IsCapture
-                        // || inCheck // the inCheck condition doesn't seem to gain, failed a [0,10] SPRT with +1.6 after 5.7k games
+                        // the inCheck condition doesn't seem to gain, failed a [0,10] SPRT with +1.6 after 5.7k games
                             ? 1 
                             // reduction values originally from the Viridithas engine, which seem pretty widely used by now
                             // TODO: Precompute and compress the individual Log values (should take up at most 4 bits each)? Probably far too token-hungry
                             : Clamp((int)(0.77 + Log(remainingDepth) * Log(moveIdx) / 2.36) + 1 - ToInt32(isNotPvNode), 1, remainingDepth - 1)
-                    );
-                    if (alpha < score && score < beta)
+                        ) && score < beta)
                         search(beta);
-                }
 
                 board.UndoMove(move);
 
-                if (timer.MillisecondsElapsedThisTurn * 16 > timer.MillisecondsRemaining) // TODO: Test with 16
+                if (timer.MillisecondsElapsedThisTurn * 16 > timer.MillisecondsRemaining)
                     return 12345; // the value won't be used, so use a canary to detect bugs
 
                 bestScore = Max(score, bestScore);

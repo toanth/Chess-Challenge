@@ -207,10 +207,7 @@ namespace ChessChallenge.Example
     //     };
 
     
-    // TODO: Better TM
-    // TODO: FP, LMP
-    
-    public record struct TTEntry (
+    record struct TTEntry (
         ulong key,
         Move bestMove,
         short score,
@@ -328,13 +325,12 @@ namespace ChessChallenge.Example
         // starting with depth 0 wouldn't only be useless but also incorrect due to assumptions in negamax
         for (int depth = 1, alpha = -30_000, beta = 30_000; depth < 64 && timer.MillisecondsElapsedThisTurn <= timer.MillisecondsRemaining / 64;)
         {
-            // TODO: This should be bugged when out of time when the last score failed low on the asp window
             int score = negamax(depth, alpha, beta, 0, false);
             // TODO: Test returning here in case of a soft timeout?
             // excluding checkmate scores was inconclusive after 6000 games, so likely not worth the tokens
-            if (score <= alpha) alpha += score - alpha;
+            if (score <= alpha) alpha = score;
             else if (score >= beta) {
-                beta += score - beta;
+                beta = score;
                 chosenMove = bestRootMove; 
             }
             else
@@ -405,16 +401,22 @@ namespace ChessChallenge.Example
             if (remainingDepth > 0) ++nonQuiescentNodeCtr;
             if (remainingDepth > 1) ++parentOfInnerNodeCtr;
 #endif
+            
+            
+            ref TTEntry ttEntry = ref tt[board.ZobristKey & 0x7f_ffff];
 
             // Using stackalloc doesn't gain elo
             bool inQsearch = remainingDepth <= 0,
                 isNotPvNode = alpha + 1 >= beta,
                 inCheck = board.IsInCheck(),
-                allowPruning = isNotPvNode && !inCheck;
+                allowPruning = isNotPvNode && !inCheck,
+                trustTTScore = ttEntry.key == board.ZobristKey
+                    && ttEntry.flag != 0 | ttEntry.score >= beta // Token-efficient flag cut-off condition by Broxholme
+                    && ttEntry.flag != 1 | ttEntry.score <= alpha;
             stmColor = board.IsWhiteToMove;
 
             int bestScore = -32_000,
-                standPat = eval(),
+                standPat = trustTTScore ? ttEntry.score : eval(),
                 moveIdx = 0,
                 score;
 
@@ -423,7 +425,7 @@ namespace ChessChallenge.Example
             if (halfPly > 0 && board.IsRepeatedPosition())
                 return 0;
 
-            if (inQsearch)
+            if (inQsearch) // TODO: Merge into one condition: if (inQsearch && (alpha = ...) >= beta) return standPat;
             {
                 if (standPat >= beta) return standPat;
                 alpha = Max(alpha, bestScore = standPat);
@@ -434,11 +436,8 @@ namespace ChessChallenge.Example
 
             // TODO: Use tt for stand pat score?
             // TODO: Use tuple as TT entries
-            ref TTEntry ttEntry = ref tt[board.ZobristKey & 0x7f_ffff];
 
-            if (isNotPvNode && ttEntry.depth >= remainingDepth && ttEntry.key == board.ZobristKey
-                    && ttEntry.flag != 0 | ttEntry.score >= beta // Flag cut-off condition by Broxholme
-                    && ttEntry.flag != 1 | ttEntry.score <= alpha)
+            if (isNotPvNode && ttEntry.depth >= remainingDepth && trustTTScore)
                 return ttEntry.score;
 
             int search(int minusNewAlpha, int reduction = 1, bool allowNullMovePruning = true) =>
@@ -592,9 +591,7 @@ namespace ChessChallenge.Example
             foreach (bool isWhite in new[] { stmColor, !stmColor })
             {
                 for (int piece = 6; --piece >= 0;)
-                {
-                    ulong mask = board.GetPieceBitboard((PieceType)piece + 1, isWhite);
-                    while (mask != 0)
+                    for (ulong mask = board.GetPieceBitboard((PieceType)piece + 1, isWhite); mask != 0; )
                     {
                         phase += pesto[768 + piece];
                         int psqtIndex = BitboardHelper.ClearAndGetIndexOfLSB(ref mask) ^
@@ -603,14 +600,12 @@ namespace ChessChallenge.Example
                         mg += pesto[psqtIndex] + (47 << piece) + pesto[piece + 776];
                         eg += pesto[psqtIndex + 384] + (47 << piece) + pesto[piece + 782];
                     }
-                }
                 mg = -mg;
                 eg = -eg;
             }
             return (mg * phase + eg * (24 - phase)) / 24;
         }
     }
-        
         
         
 //
