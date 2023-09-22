@@ -18,6 +18,7 @@ namespace ChessChallenge.Example
     public class EvilBot : IChessBot
     {
 
+
         // public static int[] piecePhase = new int[]{ 0, 1, 1, 2, 4, 0 };
         //     
         // public static int[] pestoPieceValues = new int[]{82, 337, 365, 477, 1025, 100,  94, 281, 297, 512, 936, 100};
@@ -207,10 +208,7 @@ namespace ChessChallenge.Example
         //     };
 
 
-        // TODO: Better TM
-        // TODO: FP, LMP
-
-        public record struct TTEntry(
+        record struct TTEntry(
             ulong key,
             Move bestMove,
             short score,
@@ -287,29 +285,48 @@ namespace ChessChallenge.Example
 #else
 
         // modified pesto values to make the king lead the army (as he should)
-        private static ulong[] compresto = { 2531906049332683555, 1748981496244382085, 1097852895337720349, 879379754340921365,
-        733287618436800776, 1676506906360749833, 957361353080644096, 2531906049332683555, 1400370699429487872, 7891921272903718197,
-        12306085787436563023, 10705271422119415669, 8544333011004326513, 7968995920879187303, 7741846628066281825, 7452158230270339349,
-        5357357457767159349, 2550318802336244280, 5798248685363885890, 5789790151167530830, 6222952639246589772, 6657566409878495570,
-        6013263560801673558, 4407693923506736945, 8243364706457710951, 8314078770487191394, 6306293301333023298, 3692787177354050607,
-        3480508800547106083, 2756844305966902810, 18386335130924827, 3252248017965169204, 6871752429727068694, 7516062622759586586,
-        7737582523311005989, 3688521973121554199, 3401675877915367465, 3981239439281566756, 3688238338080057871, 5375663681380401,
-        18446744073709551615, 18446744073709551615, 18446744073709551615, 18085043209519168250, 14468034567615334600, 7234017283807667300,
-        729075380852492810, 2220548423680, 578721382704613384, 14100080608108000698, 6654698745744944230, 1808489945494790184,
-        507499387321389333, 1973657882726156, 74881230395412501, 578721382704613384, 10212557253393705, 3407899295075687242,
-        4201957831109070667, 5866904407588300370, 5865785079031356753, 5570777287267344460, 3984647049929379641, 2535897457754910790,
-        219007409309353485, 943238143453304595, 2241421631242834717, 2098155335031661592, 1303832920857255445, 870353785759930383,
-        3397624511334669, 726780562173596164, 1809356472696839713, 1665231324524388639, 1229220018493528859, 1590638277979871000,
-        651911504053672215, 291616928119591952, 1227524515678129678, 6763160767239691, 4554615069702439202, 3119099418927382298,
-        3764532488529260823, 5720789117110010158, 4778967136330467097, 3473748882448060443, 794625965904696341, 150601370378243850,
-        4129336036406339328, 6152322103641660222, 6302355975661771604, 5576700317533364290, 4563097935526446648, 4706642459836630839,
-        4126790774883761967, 2247925333337909269, 17213489408, 6352191893251519744, 982348882
-    };
+
+        private static decimal[] compresto =
+        //{ 41259558725125996627165219m, 12148637347380132057594602787m, 17409920479543741895501962275m, // King on the Hill
+        //17415950995801734670306856227m, 19582331915682273036106054435m, 27619270727875069952953687331m, 24204036247829785076863430435m,
+        //17716926000956954423912436515m, 19219649429467103993823507845m, 28239454489355386850579207593m, 27325506771411738416264562272m,
+        //28264832339681771434507870850m, 28285318131004412562552952167m, 34744636933779689407842729121m, 30108430193492016189690643781m,
+        //26358318502736140442102099224m, 26024674163127773519950270237m, 28222501119009669821941398058m, 30083038105128108481872503613m,
+        //27655505596085170615162158914m, 29200508052015767681834013284m, 36923093278145214822962495323m, 36594255899084126330755204924m,
+        //26988140853361498875747150351m, 20481735021348480326189348117m, 29789250406994879528029359920m, 30410685558647940414305571113m,
+        //31364471306583714327947424568m, 31069498221195977787065213754m, 33215336754067430849459503919m, 31069483850178693655982346292m,
+        //23925955328855033875822318604m, 17361492703139000694499733768m, 21749903039957356346318225953m, 29476162306263312653631852062m,
+        //30438448480538592833862142767m, 31347517973581000950106331700m, 30113200044799880073253392681m, 25786444850924748628626805549m,
+        //19577387562017682951889122826m, 17054392377348217988233455369m, 21992873407402627972387140895m, 26376415020547554755727165983m,
+        //29460403713898812762275022873m, 30082972231781112332790305062m, 27926224772350575244640882470m, 25132415906995749840516060996m,
+        //20174573194104229207402638871m, 14571249260866753575058301184m, 19521800419985569949306407202m, 24155641624402129114338849295m,
+        //26957941230043120604527360780m, 27267374386283891708650945812m, 24164061566224769821843099707m, 21362970886548606444956250185m,
+        //17654024028026089087826094861m, 6511326489308964189700691235m, 12397638507713055097629927715m, 16428201656437916071855670307m,
+        //19497645755591373432708488483m, 14282320806016552133951057187m, 18582432038614946968303460899m, 15502169531075431186295384867m,
+        //9596453343092634717813303075m, 9596453343092634734267793664m, 18121138423700895515950413056m };
+        { 41259558725398675510853667m, 12148637347380404736478291235m, 17409920479544014574385650723m, // Gᴀᴍʙᴏᴛ
+        17415950995802007349190544675m, 19582331915682545714989742883m, 27619270727875342631837375779m, 24204036247830057755747118883m,
+        17716926000957227102796124963m, 19219649429467377772218824069m, 28239454489355639738253596073m, 27325506771411963816148256352m,
+        28264832339681996834391564930m, 28285318131004637962436646247m, 34744636933779914807726423201m, 30108430193492269077365032261m,
+        26358318502736414220497415448m, 26024674163128048397857214237m, 28222501119009922709615786538m, 30083038105128295398849225533m,
+        27655505596085286063883075394m, 29200508052015883130554929764m, 36923093278145401739939217243m, 36594255899084379218429593404m,
+        26988140853361773753654094351m, 20481735021348750806049781013m, 29789250406995126918145609520m, 30410685558648105341049737513m,
+        31364471306583769303528813368m, 31069498221196032762646602554m, 33215336754067595776203670319m, 31069483850178941046098595892m,
+        23925955328855304355682751500m, 17361492703139217298290405640m, 21749903039957548760853086753m, 29476162306263422604794629662m,
+        30438448480538592833862142767m, 31347517973581000950106331700m, 30113200044799990024416170281m, 25786444850924941043161666349m,
+        19577387562017899555679794698m, 17054392377348325740372977417m, 21992873407402710435759224095m, 26376415020547582243517860383m,
+        29460403713898812762275022873m, 30082972231781112332790305062m, 27926224772350602732431576870m, 25132415906995832303888144196m,
+        20174573194104336959542160919m, 14571249260866763470662951168m, 19521800419985553456631990562m, 24155641624402129114338849295m,
+        26957941230043120604527360780m, 27267374386283891708650945812m, 24164061566224769821843099707m, 21362970886548611942514389065m,
+        17654024028026098983430744845m, 6511326489308964189700691235m, 12397638507713055097629927715m, 16428201656437907275762648099m,
+        19497645755591376731243371811m, 14282320806016557631509196067m, 18582432038614949167326716451m, 15502169531075422390202362659m,
+        9596453343092634717813303075m, 9596453343092634734267793664m, 18121138423700895515950413056m };
 
 #endif
 
         // values are from pesto for now, with a modified king middle game table unless NO_JOKE is defined
-        private byte[] pesto = compresto.SelectMany(BitConverter.GetBytes).ToArray();
+        //private byte[] pesto = compresto.SelectMany(BitConverter.GetBytes).ToArray();
+        private byte[] pesto = compresto.SelectMany(decimal.GetBits).SelectMany(BitConverter.GetBytes).ToArray();
 
         #endregion // compresto
 
@@ -326,15 +343,15 @@ namespace ChessChallenge.Example
             var killers = new Move[256];
 
             // starting with depth 0 wouldn't only be useless but also incorrect due to assumptions in negamax
-            for (int depth = 1, alpha = -30_000, beta = 30_000; depth < 64 && timer.MillisecondsElapsedThisTurn <= timer.MillisecondsRemaining / 32;)
+            for (int depth = 1, alpha = -30_000, beta = 30_000; depth < 64 && timer.MillisecondsElapsedThisTurn <= timer.MillisecondsRemaining / 64;)
             {
-                // TODO: This should be bugged when out of time when the last score failed low on the asp window
                 int score = negamax(depth, alpha, beta, 0, false);
+                // TODO: Test returning here in case of a soft timeout?
                 // excluding checkmate scores was inconclusive after 6000 games, so likely not worth the tokens
-                if (score <= alpha) alpha += score - alpha;
+                if (score <= alpha) alpha = score;
                 else if (score >= beta)
                 {
-                    beta += score - beta;
+                    beta = score;
                     chosenMove = bestRootMove;
                 }
                 else
@@ -406,63 +423,59 @@ namespace ChessChallenge.Example
             if (remainingDepth > 1) ++parentOfInnerNodeCtr;
 #endif
 
+
+                ref TTEntry ttEntry = ref tt[board.ZobristKey & 0x7f_ffff];
+
                 // Using stackalloc doesn't gain elo
                 bool inQsearch = remainingDepth <= 0,
                     isNotPvNode = alpha + 1 >= beta,
                     inCheck = board.IsInCheck(),
-                    canPrune = isNotPvNode && !inCheck;
-                stmColor = board.IsWhiteToMove;
+                    allowPruning = isNotPvNode && !inCheck,
+                    trustTTScore = ttEntry.key == board.ZobristKey
+                        && ttEntry.flag != 0 | ttEntry.score >= beta // Token-efficient flag cut-off condition by Broxholme
+                        && ttEntry.flag != 1 | ttEntry.score <= alpha;
+                stmColor = board.IsWhiteToMove; // a member variable because it's also used in eval (eval is called at most once per node, before visiting children)
 
                 int bestScore = -32_000,
-                    // originalAlpha = alpha,
-                    standPat = eval(),
+                    standPat = trustTTScore ? ttEntry.score : eval(), // using the TT score passed the SPRT with a 20 elo gain
                     moveIdx = 0,
-                    score;
+                    childScore;
 
                 byte flag = 1;
 
                 if (halfPly > 0 && board.IsRepeatedPosition())
                     return 0;
 
-                if (inQsearch)
-                {
-                    if (standPat >= beta) return standPat;
-                    alpha = Max(alpha, bestScore = standPat);
-                }
+                if (inQsearch && (alpha = Max(alpha, bestScore = standPat)) >= beta)
+                    return standPat;
 
                 // Check Extensions
                 if (inCheck) ++remainingDepth; // TODO: Do this before setting qsearch to disallow dropping to qsearch in check? Probably unimportant
 
-                // TODO: Use tt for stand pat score?
                 // TODO: Use tuple as TT entries
-                ref TTEntry ttEntry = ref tt[board.ZobristKey & 0x7f_ffff];
 
-                if (isNotPvNode && ttEntry.depth >= remainingDepth && ttEntry.key == board.ZobristKey
-                        && ttEntry.flag != 0 | ttEntry.score >= beta // Flag cut-off condition by Broxholme
-                        && ttEntry.flag != 1 | ttEntry.score <= alpha)
+                if (isNotPvNode && ttEntry.depth >= remainingDepth && trustTTScore)
                     return ttEntry.score;
 
                 int search(int minusNewAlpha, int reduction = 1, bool allowNullMovePruning = true) =>
-                    score = -negamax(remainingDepth - reduction, -minusNewAlpha, -alpha, halfPly + 2, allowNullMovePruning);
+                    childScore = -negamax(remainingDepth - reduction, -minusNewAlpha, -alpha, halfPly + 2, allowNullMovePruning);
 
-                if (canPrune)
-                {
+                if (allowPruning)
                     // Reverse Futility Pruning (RFP) // TODO: Don't do in check? Increase depth?
                     if (!inQsearch && remainingDepth < 5 && standPat >= beta + 64 * remainingDepth)
                         return standPat;
 
                     // Null Move Pruning (NMP). TODO: Avoid zugzwang by testing phase? Probably not worth the tokens
-                    if (remainingDepth >= 4 && allowNmp && standPat >= beta)
+                    else if (remainingDepth >= 4 && allowNmp && standPat >= beta)
                     {
                         board.ForceSkipTurn();
                         //int reduction = 3 + remainingDepth / 5;
                         // changing the ply by a large number doesn't seem to gain elo, even though this should prevent overwriting killer moves
                         search(beta, 3 + remainingDepth / 5, false);
                         board.UndoSkipTurn();
-                        if (score >= beta)
-                            return score;
+                        if (childScore >= beta)
+                            return childScore;
                     }
-                }
 
                 // the following is 13 tokens for a slight (not passing SPRT after 10k games) elo improvement
                 // killers[halfPly + 2] = killers[halfPly + 3] = default;
@@ -474,85 +487,78 @@ namespace ChessChallenge.Example
                 var scores = new int[legalMoves.Length];
                 foreach (Move move in legalMoves)
                 {
-                    scores[moveIdx++] = -(move == ttEntry.bestMove ? 1_000_000_000 :
-                        move.IsCapture ? (int)move.CapturePieceType * 1_048_576 - (int)move.MovePieceType :
-                        // Giving the first killer a higher score doesn't seem to gain after 10k games
-                        move == killers[halfPly] || move == killers[halfPly + 1] ? 1_000_000 :
-                        history[ToInt32(stmColor), (int)move.MovePieceType, move.TargetSquare.Index]);
+                    // TODO: Maybe order captures (or even quiet moves) later if the the target square is attacked (at all/by a less valuable piece), discount SEE
+                    scores[moveIdx++] = -(move == ttEntry.bestMove ? 1_000_000_000 : // order the TT move first
+                        move.IsCapture ? (int)move.CapturePieceType * 1_048_576 - (int)move.MovePieceType : // then captures, ordered by MVV-LVA
+                                                                                                            // Giving the first killer a higher score doesn't seem to gain after 10k games
+                        move == killers[halfPly] || move == killers[halfPly + 1] ? 1_000_000 : // killers
+                        history[ToInt32(stmColor), (int)move.MovePieceType, move.TargetSquare.Index]); // quiet history
                 }
 
                 Array.Sort(scores, legalMoves);
 
-                Move localBestMove = ttEntry.bestMove;
+                Move localBestMove = ttEntry.bestMove; // init to TT move to prevent overriding the TT move in fail-low nodes
                 moveIdx = 0;
                 foreach (Move move in legalMoves)
                 {
-                    // TODO: Better Futility Pruning (FP) / Late Move Pruning (LMP)
-                    // if (remainingDepth <= 5 && bestScore > -29_000 && canPrune
-                    //     && moveIdx > remainingDepth * remainingDepth + 4 && scores[moveIdx] < 1_000_000 /*|| standPat + 500 + 128 * remainingDepth < alpha*/) break;
-                    // Futility Pruning (FP). Probably needs more tuning
-                    if (remainingDepth <= 5 && bestScore > -29_000 && canPrune
-                        && scores[moveIdx] > -1_000_000 && standPat + 300 + 64 * remainingDepth < alpha) break;
+                    // Futility Pruning (FP) and Late Move Pruning (LMP). Would probably benefit from more tuning
+                    if (remainingDepth <= 5 && bestScore > -29_000 && allowPruning
+                        && (scores[moveIdx] > -1_000_000 && standPat + 300 + 64 * remainingDepth < alpha || moveIdx > 7 + remainingDepth * remainingDepth)) break;
                     board.MakeMove(move);
-                    // pvs like this is -7 +- 20 elo after 1000 games; adding inQsearch || ... doesn't change that, nor does move == ttMove
-                    if (moveIdx++ == 0)
-                        search(beta);
-                    else
-                    {
+                    // adding || inQsearch and seems to lose elo, quickly fails the SPRT
+                    if (moveIdx++ == 0 ||
                         // Late Move Reductions (LMR), needs further parameter tuning. `reduction` is R + 1 to save tokens
-                        search(alpha + 1,
-                            moveIdx >= (isNotPvNode ? 3 : 4)
-                            && remainingDepth > 3
-                            && !move.IsCapture
-                                // && !inCheck // TODO: Test enabling this (probably good)
-                                ?
-                                Clamp((int)(0.77 + Log(remainingDepth) * Log(moveIdx) / 2.36) + 1 - ToInt32(isNotPvNode), 1, remainingDepth - 1)
-                                : 1
-                        );
-                        if (alpha < score && score < beta)
-                            search(beta);
-                    }
+                        alpha < search(alpha + 1,
+                            moveIdx < (isNotPvNode ? 3 : 4)
+                            || remainingDepth <= 3
+                            || move.IsCapture
+                                // the inCheck condition doesn't seem to gain, failed a [0,10] SPRT with +1.6 after 5.7k games
+                                ? 1
+                                // reduction values originally from the Viridithas engine, which seem pretty widely used by now
+                                // Log is expensive to compute, but precomputing would need too many tokens
+                                : Clamp((int)(0.77 + Log(remainingDepth) * Log(moveIdx) / 2.36) + 1 - ToInt32(isNotPvNode), 1, remainingDepth - 1)
+                            ) && childScore < beta) // here, `childScore` refers to the result from the search we just did in the same statement
+                        search(beta); // pvs re-search or first move
 
                     board.UndoMove(move);
 
-                    if (timer.MillisecondsElapsedThisTurn > timer.MillisecondsRemaining / 32)
+                    if (timer.MillisecondsElapsedThisTurn * 16 > timer.MillisecondsRemaining) // time management hard bound
                         return 12345; // the value won't be used, so use a canary to detect bugs
 
-                    bestScore = Max(score, bestScore);
-                    if (score > alpha)
-                    {
-                        localBestMove = move;
-                        if (halfPly == 0) bestRootMove = localBestMove; // updating here (instead of at the end) together with the aw fix is better, now testing without the aw fix
-                        alpha = score;
-                        ++flag;
-                        if (score >= beta)
-                        {
+                    bestScore = Max(childScore, bestScore);
+                    if (childScore <= alpha) continue; // `continue` doesn't save tokens but saves identation, making the code easier to read
+
+                    localBestMove = move;
+                    if (halfPly == 0) bestRootMove = localBestMove; // update in the move loop to use the result of unfinished searches (unless they failed low in the aw)
+                    alpha = childScore;
+                    ++flag; // saves one token over flag = 2, won't ever reach 256 so it's fine
+                    if (childScore < beta) continue;
+
 #if PRINT_DEBUG_INFO
-                    ++betaCutoffCtr;
-                    if (remainingDepth > 1) ++parentOfInnerNodeBetaCutoffCtr;
+            ++betaCutoffCtr;
+            if (remainingDepth > 1) ++parentOfInnerNodeBetaCutoffCtr;
 #endif
-                            if (!move.IsCapture)
-                            {
-                                if (move != killers[halfPly]) // TODO: Test using only 1 killer move
-                                {
-                                    killers[halfPly + 1] = killers[halfPly];
-                                    killers[halfPly] = move;
-                                }
-
-                                // gravity didn't gain (TODO: Retest later when the engine is better), but history still gained quite a bit
-                                // TODO: Test from-to instead of stm-piece-to
-                                history[ToInt32(stmColor), (int)move.MovePieceType, move.TargetSquare.Index]
-                                    += remainingDepth * remainingDepth;
-                            }
-
-                            flag = 0;
-
-                            break;
+                    if (!move.IsCapture)
+                    {
+                        if (move != killers[halfPly]) // TODO: Test using only 1 killer move
+                        {
+                            killers[halfPly + 1] = killers[halfPly];
+                            killers[halfPly] = move;
                         }
+
+                        // gravity didn't gain (TODO: Retest later when the engine is better), but history still gained quite a bit
+                        // TODO: Test from-to instead of stm-piece-to
+                        // TODO: Test reducing the history score for moves that don't raise alpha
+                        history[ToInt32(stmColor), (int)move.MovePieceType, move.TargetSquare.Index]
+                            += remainingDepth * remainingDepth;
                     }
+
+                    flag = 0;
+
+                    break;
                 }
 
-                if (moveIdx == 0)
+                if (moveIdx == 0) // slightly better than using `IsInCheckmate` and `IsDraw`, also not too token-hungry
                     return inQsearch ? bestScore : inCheck ? halfPly - 30_000 : 0; // being checkmated later is better (as is checkmating earlier)
 
                 ttEntry = new(board.ZobristKey, localBestMove, (short)bestScore,
@@ -561,60 +567,31 @@ namespace ChessChallenge.Example
                 return bestScore;
             }
 
-            // // Eval loosely based on JW's example bot (ie tier 2 bot)
-            // int eval()
-            // {
-            // //     bool stmColor = board.IsWhiteToMove;
-            //     int phase = 0, mg = 7, eg = 7;
-            //     foreach (bool isWhite in new[] { stmColor, !stmColor })
-            //     {
-            //         for (int piece = 6; --piece >= 0;)
-            //         {
-            //             ulong mask = board.GetPieceBitboard((PieceType)piece + 1, isWhite);
-            //             while (mask != 0)
-            //             {
-            //                 phase += piecePhase[piece];
-            //                 int psqtIndex = BitboardHelper.ClearAndGetIndexOfLSB(ref mask) ^
-            //                                 56 * ToInt32(isWhite);
-            //                 // TODO: Use pesto[^piece] for endgame piece values (requires reversing the order of eg piece values)
-            //                 mg += pestoPsqts[piece][psqtIndex] +  pestoPieceValues[piece];
-            //                 eg += pestoPsqts[piece + 6][psqtIndex] + pestoPieceValues[piece + 6];
-            //             }
-            //         }
-            //         mg = -mg;
-            //         eg = -eg;
-            //     }
-            //     return (mg * phase + eg * (24 - phase)) / 24;
-            // }
 
-            // Eval loosely based on JW's example bot (ie tier 2 bot)
+            // Eval very loosely based on JW's example bot (ie tier 2 bot)
+            // Uses a lossless "compression" of bytes to decimals
             int eval()
             {
-                // bool stmColor = board.IsWhiteToMove;
+                // TODO: Maybe add a small "random" component like the last 2 bits of the zobrist hash to approximate mobility?
                 int phase = 0, mg = 7, eg = 7;
                 foreach (bool isWhite in new[] { stmColor, !stmColor })
                 {
-                    for (int piece = 6; --piece >= 0;)
-                    {
-                        ulong mask = board.GetPieceBitboard((PieceType)piece + 1, isWhite);
-                        while (mask != 0)
+                    for (int piece = 6; piece >= 1;)
+                        for (ulong mask = board.GetPieceBitboard((PieceType)piece--, isWhite); mask != 0;)
                         {
-                            phase += pesto[768 + piece];
-                            int psqtIndex = BitboardHelper.ClearAndGetIndexOfLSB(ref mask) ^
-                                            56 * ToInt32(isWhite) + 64 * piece;
-                            // TODO: Use pesto[^piece] for endgame piece values (requires reversing the order of eg piece values)
-                            mg += pesto[psqtIndex] + (47 << piece) + pesto[piece + 776];
-                            eg += pesto[psqtIndex + 384] + (47 << piece) + pesto[piece + 782];
+                            phase += pesto[1024 + piece];
+                            int psqtIndex = 16 * (BitboardHelper.ClearAndGetIndexOfLSB(ref mask) ^
+                                            56 * ToInt32(isWhite)) + piece;
+                            // The + (47 << piece) part is just a trick to encode piece values in one byte
+                            mg += pesto[psqtIndex] + (47 << piece) + pesto[piece + 1040];
+                            eg += pesto[psqtIndex + 6] + (47 << piece) + pesto[piece + 1046];
                         }
-                    }
                     mg = -mg;
                     eg = -eg;
                 }
-                return (mg * phase + eg * (24 - phase)) / 24;
+                return (mg * phase + eg * (24 - phase)) / 24; // if scores weren't stored as shorts in the TT, the / 24 would be unnecessary // TODO: Change TT size?
             }
         }
-
-
 
 
         //
