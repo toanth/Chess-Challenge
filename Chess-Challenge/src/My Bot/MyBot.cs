@@ -19,195 +19,8 @@ using ChessChallenge.API;
 
 public class MyBot : IChessBot
 {
-
-    // public static int[] piecePhase = new int[]{ 0, 1, 1, 2, 4, 0 };
-    //     
-    // public static int[] pestoPieceValues = new int[]{82, 337, 365, 477, 1025, 100,  94, 281, 297, 512, 936, 100};
-    //
-    // public static int[][] pestoPsqts =
-    //     new int[][]{
-    //         new int[]
-    //         {
-    //             // pawn mg
-    //             0, 0, 0, 0, 0, 0, 0, 0,
-    //             98, 134, 61, 95, 68, 126, 34, -11,
-    //             -6, 7, 26, 31, 65, 56, 25, -20,
-    //             -14, 13, 6, 21, 23, 12, 17, -23,
-    //             -27, -2, -5, 12, 17, 6, 10, -25,
-    //             -26, -4, -4, -10, 3, 3, 33, -12,
-    //             -35, -1, -20, -23, -15, 24, 38, -22,
-    //             0, 0, 0, 0, 0, 0, 0, 0
-    //         },
-    //         new int[]
-    //         {
-    //             // knight mg
-    //             -167, -89, -34, -49, 61, -97, -15, -107,
-    //             -73, -41, 72, 36, 23, 62, 7, -17,
-    //             -47, 60, 37, 65, 84, 129, 73, 44,
-    //             -9, 17, 19, 53, 37, 69, 18, 22,
-    //             -13, 4, 16, 13, 28, 19, 21, -8,
-    //             -23, -9, 12, 10, 19, 17, 25, -16,
-    //             -29, -53, -12, -3, -1, 18, -14, -19,
-    //             -105, -21, -58, -33, -17, -28, -19, -23
-    //         },
-    //         new int[]
-    //         {
-    //             // bishop mg
-    //             -29, 4, -82, -37, -25, -42, 7, -8,
-    //             -26, 16, -18, -13, 30, 59, 18, -47,
-    //             -16, 37, 43, 40, 35, 50, 37, -2,
-    //             -4, 5, 19, 50, 37, 37, 7, -2,
-    //             -6, 13, 13, 26, 34, 12, 10, 4,
-    //             0, 15, 15, 15, 14, 27, 18, 10,
-    //             4, 15, 16, 0, 7, 21, 33, 1,
-    //             -33, -3, -14, -21, -13, -12, -39, -21
-    //         },
-    //         new int[]
-    //         {
-    //             // rook mg
-    //             32, 42, 32, 51, 63, 9, 31, 43,
-    //             27, 32, 58, 62, 80, 67, 26, 44,
-    //             -5, 19, 26, 36, 17, 45, 61, 16,
-    //             -24, -11, 7, 26, 24, 35, -8, -20,
-    //             -36, -26, -12, -1, 9, -7, 6, -23,
-    //             -45, -25, -16, -17, 3, 0, -5, -33,
-    //             -44, -16, -20, -9, -1, 11, -6, -71,
-    //             -19, -13, 1, 17, 16, 7, -37, -26
-    //         },
-    //         new int[]
-    //         {
-    //             // queen mg
-    //             -28, 0, 29, 12, 59, 44, 43, 45,
-    //             -24, -39, -5, 1, -16, 57, 28, 54,
-    //             -13, -17, 7, 8, 29, 56, 47, 57,
-    //             -27, -27, -16, -16, -1, 17, -2, 1,
-    //             -9, -26, -9, -10, -2, -4, 3, -3,
-    //             -14, 2, -11, -2, -5, 2, 14, 5,
-    //             -35, -8, 11, 2, 8, 15, -3, 1,
-    //             -1, -18, -9, 10, -15, -25, -31, -50
-    //         },
-    //         //new int[]
-    //         //{
-    //         //    // king mg
-    //         //    -65, 23, 16, -15, -56, -34, 2, 13,
-    //         //    29, -1, -20, -7, -8, -4, -38, -29,
-    //         //    -9, 24, 2, -16, -20, 6, 22, -22,
-    //         //    -17, -20, -12, -27, -30, -25, -14, -36,
-    //         //    -49, -1, -27, -39, -46, -44, -33, -51,
-    //         //    -14, -14, -22, -46, -44, -30, -15, -27,
-    //         //    1, 7, -8, -64, -43, -16, 9, 8,
-    //         //    -15, 36, 12, -54, 8, -28, 24, 14
-    //         //},
-    //         // new int[]
-    //         // {
-    //         //     // king mg, King on the Hill
-    //         //     0,  0,  0,  0,  0,  0,  0,  0,
-    //         //     0,  32, 64, 64, 64, 64, 32, 0,
-    //         //     0,  32, 120,128,128,120,32, 0,
-    //         //     0,  32, 128,255,255,128,32, 0,
-    //         //     0,  32, 128,255,255,128,32, 0,
-    //         //     0,  32, 120,128,128,120,32, 0,
-    //         //     32, 32, 64, 64, 64, 64, 32, 32,
-    //         //     0,  16, 16, 0,  16, 0,  16, 16
-    //         // },
-    //         new int[]
-    //         {
-    //             // king mg, King on the Hill
-    //             7,  7,  7,  7,  7,  7,  7,  7,
-    //             6,  25, 50, 50, 50, 50, 25, 6,
-    //             5,  25, 85 ,150,150,85 ,25, 5,
-    //             4,  25, 100,200,200,100,25, 4,
-    //             3,  25, 100,200,200,100,25, 3,
-    //             2,  25, 75, 100,100,75 ,25, 2,
-    //             1,  25, 50, 50, 50, 50, 25, 1,
-    //             0,  0,  8,  0,  0,  0,  8,  0
-    //         },
-    //         // new int[]
-    //         // {
-    //         //     // king mg, Gᴀᴍʙᴏᴛ
-    //         //     255, 255, 255, 255, 255, 255, 255, 255,
-    //         //     255, 255, 255, 255, 255, 255, 255, 255,
-    //         //     255, 255, 255, 255, 255, 255, 255, 255,
-    //         //     250, 250, 250, 250, 250, 250, 250, 250,
-    //         //     200, 200, 200, 200, 200, 200, 200, 200,
-    //         //     100, 100, 100, 100, 100, 100, 100, 100,
-    //         //     10, 10, 50, 50, 50, 50, 30, 10,
-    //         //     0, 0, 0, 3, 5, 2, 0, 0
-    //         // },
-    //         new int[]
-    //         {
-    //             // pawn eg
-    //             0, 0, 0, 0, 0, 0, 0, 0,
-    //             178, 173, 158, 134, 147, 132, 165, 187,
-    //             94, 100, 85, 67, 56, 53, 82, 84,
-    //             32, 24, 13, 5, -2, 4, 17, 17,
-    //             13, 9, -3, -7, -7, -8, 3, -1,
-    //             4, 7, -6, 1, 0, -5, -1, -8,
-    //             13, 8, 8, 10, 13, 0, 2, -7,
-    //             0, 0, 0, 0, 0, 0, 0, 0,
-    //         },
-    //         new int[]
-    //         {
-    //             // knight eg
-    //             -58, -38, -13, -28, -31, -27, -63, -99,
-    //             -25, -8, -25, -2, -9, -25, -24, -52,
-    //             -24, -20, 10, 9, -1, -9, -19, -41,
-    //             -17, 3, 22, 22, 22, 11, 8, -18,
-    //             -18, -6, 16, 25, 16, 17, 4, -18,
-    //             -23, -3, -1, 15, 10, -3, -20, -22,
-    //             -42, -20, -10, -5, -2, -20, -23, -44,
-    //             -29, -51, -23, -15, -22, -18, -50, -64
-    //         },
-    //         new int[]
-    //         {
-    //             // bishop eg
-    //             -14, -21, -11, -8, -7, -9, -17, -24,
-    //             -8, -4, 7, -12, -3, -13, -4, -14,
-    //             2, -8, 0, -1, -2, 6, 0, 4,
-    //             -3, 9, 12, 9, 14, 10, 3, 2,
-    //             -6, 3, 13, 19, 7, 10, -3, -9,
-    //             -12, -3, 8, 10, 13, 3, -7, -15,
-    //             -14, -18, -7, -1, 4, -9, -15, -27,
-    //             -23, -9, -23, -5, -9, -16, -5, -17
-    //         },
-    //         new int[]
-    //         {
-    //             // rook eg
-    //             13, 10, 18, 15, 12, 12, 8, 5,
-    //             11, 13, 13, 11, -3, 3, 8, 3,
-    //             7, 7, 7, 5, 4, -3, -5, -3,
-    //             4, 3, 13, 1, 2, 1, -1, 2,
-    //             3, 5, 8, 4, -5, -6, -8, -11,
-    //             -4, 0, -5, -1, -7, -12, -8, -16,
-    //             -6, -6, 0, 2, -9, -9, -11, -3,
-    //             -9, 2, 3, -1, -5, -13, 4, -20
-    //         },
-    //         new int[]
-    //         {
-    //             // queen eg
-    //             -9, 22, 22, 27, 27, 19, 10, 20,
-    //             -17, 20, 32, 41, 58, 25, 30, 0,
-    //             -20, 6, 9, 49, 47, 35, 19, 9,
-    //             3, 22, 24, 45, 57, 40, 57, 36,
-    //             -18, 28, 19, 47, 31, 34, 39, 23,
-    //             -16, -27, 15, 6, 9, 17, 10, 5,
-    //             -22, -23, -30, -16, -16, -23, -36, -32,
-    //             -33, -28, -22, -43, -5, -32, -20, -41
-    //         },
-    //         new int[]
-    //         {
-    //             // king eg
-    //             -74, -35, -18, -18, -11, 15, 4, -17,
-    //             -12, 17, 14, 17, 17, 38, 23, 11,
-    //             10, 17, 23, 15, 20, 45, 44, 13,
-    //             -8, 22, 24, 27, 26, 33, 26, 3,
-    //             -18, -4, 21, 24, 27, 23, 9, -11,
-    //             -19, -3, 11, 21, 23, 16, 7, -9,
-    //             -27, -11, 4, 13, 14, 4, -5, -17,
-    //             -53, -34, -21, -11, -28, -14, -24, -43
-    //         },
-    //     };
-
+    
+    // TODO: Use tuple for this, add more 200 token optimizations
     
     record struct TTEntry (
         ulong key,
@@ -352,7 +165,7 @@ public class MyBot : IChessBot
 #endif
 #if GUI_INFO
                 lastDepth = depth;
-                if (score != 12345) lastScore = score; // don't display the canary value of an unfinished search (the chosen move may stlil have been updated)
+                if (score != 12345) lastScore = score; // don't display the canary value of an unfinished search (the chosen move may still have been updated)
 #endif
                 alpha = beta = score; // will shortly get widened
                 chosenMove = bestRootMove;
@@ -429,9 +242,12 @@ public class MyBot : IChessBot
             int bestScore = -32_000,
                 standPat = trustTTScore ? ttEntry.score : eval(), // using the TT score passed the SPRT with a 20 elo gain
                 moveIdx = 0,
-                childScore;
+                childScore; // TODO: Merge standPat and childScore
 
             byte flag = 1;
+            
+            int search(int minusNewAlpha, int reduction = 1, bool allowNullMovePruning = true) =>
+                childScore = -negamax(remainingDepth - reduction, -minusNewAlpha, -alpha, halfPly + 2, allowNullMovePruning);
 
             if (halfPly > 0 && board.IsRepeatedPosition())
                 return 0;
@@ -442,21 +258,23 @@ public class MyBot : IChessBot
             // Check Extensions
             if (inCheck) ++remainingDepth; // TODO: Do this before setting qsearch to disallow dropping to qsearch in check? Probably unimportant
 
+            // Internal Iterative Reduction (IIR)
+            /*else*/ if (remainingDepth > 3 /*TODO: Test with 4?*/ && ttEntry.bestMove == default) // TODO: also test for matching tt hash to only reduce fail low?
+                --remainingDepth;
+            
             // TODO: Use tuple as TT entries
 
             if (isNotPvNode && ttEntry.depth >= remainingDepth && trustTTScore)
                 return ttEntry.score;
 
-            int search(int minusNewAlpha, int reduction = 1, bool allowNullMovePruning = true) =>
-                childScore = -negamax(remainingDepth - reduction, -minusNewAlpha, -alpha, halfPly + 2, allowNullMovePruning);
-
             if (allowPruning)
-                // Reverse Futility Pruning (RFP) // TODO: Don't do in check? Increase depth?
+            {
+                // Reverse Futility Pruning (RFP) // TODO: Increase depth limit?
                 if (!inQsearch && remainingDepth < 5 && standPat >= beta + 64 * remainingDepth)
                     return standPat;
 
                 // Null Move Pruning (NMP). TODO: Avoid zugzwang by testing phase? Probably not worth the tokens
-                else if (remainingDepth >= 4 && allowNmp && standPat >= beta)
+                if (remainingDepth >= 4 && allowNmp && standPat >= beta)
                 {
                     board.ForceSkipTurn();
                     //int reduction = 3 + remainingDepth / 5;
@@ -466,6 +284,7 @@ public class MyBot : IChessBot
                     if (childScore >= beta)
                         return childScore;
                 }
+            }
 
             // the following is 13 tokens for a slight (not passing SPRT after 10k games) elo improvement
             // killers[halfPly + 2] = killers[halfPly + 3] = default;
@@ -477,6 +296,7 @@ public class MyBot : IChessBot
             var scores = new int[legalMoves.Length];
             foreach (Move move in legalMoves)
             {
+                // TODO: consider move.PromotionPieceType == PieceType.Queen as non-quiet everywhere?
                 // TODO: Maybe order captures (or even quiet moves) later if the the target square is attacked (at all/by a less valuable piece), discount SEE
                 scores[moveIdx++] = -(move == ttEntry.bestMove ? 1_000_000_000 : // order the TT move first
                     move.IsCapture ? (int)move.CapturePieceType * 1_048_576 - (int)move.MovePieceType : // then captures, ordered by MVV-LVA
@@ -493,7 +313,9 @@ public class MyBot : IChessBot
             {
                 // Futility Pruning (FP) and Late Move Pruning (LMP). Would probably benefit from more tuning
                 if (remainingDepth <= 5 && bestScore > -29_000 && allowPruning
-                    && (scores[moveIdx] > -1_000_000 && standPat + 300 + 64 * remainingDepth < alpha || moveIdx > 7 + remainingDepth * remainingDepth)) break;
+                    && (scores[moveIdx] > -1_000_000 && standPat + 300 + 64 * remainingDepth < alpha
+                        || moveIdx > 7 + remainingDepth * remainingDepth))
+                    break;
                 board.MakeMove(move);
                 // adding || inQsearch and seems to lose elo, quickly fails the SPRT
                 if (moveIdx++ == 0 ||
@@ -506,6 +328,7 @@ public class MyBot : IChessBot
                             ? 1 
                             // reduction values originally from the Viridithas engine, which seem pretty widely used by now
                             // Log is expensive to compute, but precomputing would need too many tokens
+                        // ~~TODO~~ + 1 - ToInt32(isNotPvNode) -> + ToInt32(!isNotPvNode)
                             : Clamp((int)(0.77 + Log(remainingDepth) * Log(moveIdx) / 2.36) + 1 - ToInt32(isNotPvNode), 1, remainingDepth - 1)
                         ) && childScore < beta) // here, `childScore` refers to the result from the search we just did in the same statement
                         search(beta); // pvs re-search or first move
@@ -558,11 +381,12 @@ public class MyBot : IChessBot
         }
 
 
+        // ~~TODO~~: Function only called once, inline (test if that loses elo!)
         // Eval very loosely based on JW's example bot (ie tier 2 bot)
-        // Uses a lossless "compression" of bytes to decimals
+        // Uses a lossless "compression" of 12 bytes into one decimal literal
         int eval()
         {
-            // TODO: Maybe add a small "random" component like the last 2 bits of the zobrist hash to approximate mobility?
+            // TODO: Maybe add a small "random" component like the last 4 bits of the zobrist hash to approximate mobility?
             int phase = 0, mg = 7, eg = 7;
             foreach (bool isWhite in new[] { stmColor, !stmColor })
             {
