@@ -17,7 +17,11 @@ namespace ChessChallenge.Example
 
     public class EvilBot : IChessBot
     {
-    
+    // TODO: Likely bug with the scores? Output:
+    // Depth 1, score 29990, best Move: 'c8c7', nodes 0k, time 0, nps ∞k
+    // Depth 2, score 1816, best Move: 'c8c7', nodes 0k, time 0, nps ∞k
+    // Depth 3, score 29994, best Move: 'c8c7', nodes 0k, time 0, nps ∞k
+
     // TODO: Use tuple for this, add more 200 token optimizations
     
     record struct TTEntry (
@@ -35,8 +39,6 @@ namespace ChessChallenge.Example
     private TTEntry[] tt = new TTEntry[0x80_0000];
         
     private Move bestRootMove, chosenMove;
-
-    private bool stmColor;
 
 #if PRINT_DEBUG_INFO
     long allNodeCtr;
@@ -165,7 +167,7 @@ namespace ChessChallenge.Example
                 lastDepth = depth;
                 if (score != 12345) lastScore = score; // don't display the canary value of an unfinished search (the chosen move may still have been updated)
 #endif
-                alpha = beta = score; // will shortly get widened
+                alpha = beta = score; // reset window to be centered on the current score, will be widened shortly
                 chosenMove = bestRootMove;
                 ++depth;
             }
@@ -223,7 +225,17 @@ namespace ChessChallenge.Example
             ++allNodeCtr;
             if (remainingDepth > 0) ++nonQuiescentNodeCtr;
             if (remainingDepth > 1) ++parentOfInnerNodeCtr;
+            System.Diagnostics.Debug.Assert(alpha < beta); // spell out name to avoid having to guard the additional using directive with PRINT_DEBUG_INFO
+            System.Diagnostics.Debug.Assert(alpha >= -32_000);
+            System.Diagnostics.Debug.Assert(beta <= 32_000);
+            System.Diagnostics.Debug.Assert(remainingDepth < 100);
+            System.Diagnostics.Debug.Assert(halfPly >= 0 && halfPly % 2 == 0 && halfPly < 256);
 #endif
+            
+            // In general, try to abort as early as possible to avoid unnecessary work
+            // (TT probing will result in cache misses and IsInCheck() is also slow)
+            if (halfPly > 0 && board.IsRepeatedPosition())
+                return 0;
             
             ref TTEntry ttEntry = ref tt[board.ZobristKey & 0x7f_ffff];
 
@@ -234,37 +246,61 @@ namespace ChessChallenge.Example
                 allowPruning = isNotPvNode && !inCheck,
                 trustTTScore = ttEntry.key == board.ZobristKey
                     && ttEntry.flag != 0 | ttEntry.score >= beta // Token-efficient flag cut-off condition by Broxholme
-                    && ttEntry.flag != 1 | ttEntry.score <= alpha;
-            stmColor = board.IsWhiteToMove; // a member variable because it's also used in eval (eval is called at most once per node, before visiting children)
+                    && ttEntry.flag != 1 | ttEntry.score <= alpha,
+                stmColor = board.IsWhiteToMove/*,
+                tmp = stmColor*/;
 
+            
+        // Uses a lossless "compression" of 12 bytes into one decimal literal
+        // TODO: Maybe add a small "random" component like the last 4 bits of the zobrist hash to approximate mobility?
+        int phase = 0, mg = 7, eg = 7;
+        foreach (bool isWhite in new[] { stmColor, !stmColor })
+        // do
+        {
+            for (int piece = 6; piece >= 1;)
+                for (ulong mask = board.GetPieceBitboard((PieceType)piece--, isWhite); mask != 0;)
+                {
+                    phase += pesto[1024 + piece];
+                    int psqtIndex = 16 * (BitboardHelper.ClearAndGetIndexOfLSB(ref mask) ^
+                                          56 * ToInt32(isWhite)) + piece;
+                    // The + (47 << piece) part is just a trick to encode piece values in one byte
+                    mg += pesto[psqtIndex] + (47 << piece) + pesto[piece + 1040];
+                    eg += pesto[psqtIndex + 6] + (47 << piece) + pesto[piece + 1046];
+                }
+
+            // stmColor ^= true;
+            mg = -mg;
+            eg = -eg;
+        } //while (stmColor != tmp);
+        // return (mg * phase + eg * (24 - phase)) / 24; // if scores weren't stored as shorts in the TT, the / 24 would be unnecessary // TODO: Change TT size?
+            
             int bestScore = -32_000,
-                standPat = trustTTScore ? ttEntry.score : eval(), // using the TT score passed the SPRT with a 20 elo gain
+                // using the TT score passed the SPRT with a 20 elo gain. This is a bit weird since this value is obviously
+                // incorrect if the flag isn't exact, but since it gained elo it stays like this // TODO: Retest with only trusting exact scores?
+                standPat = trustTTScore ? ttEntry.score : (mg * phase + eg * (24 - phase)) / 24, // TODO: Use -30_000 for standPat when in check? 
                 moveIdx = 0,
-                childScore; // TODO: Merge standPat and childScore
+                childScore; // TODO: Merge standPat and childScore? Would make FP more difficult / token hungry
 
             byte flag = 1;
             
             int search(int minusNewAlpha, int reduction = 1, bool allowNullMovePruning = true) =>
                 childScore = -negamax(remainingDepth - reduction, -minusNewAlpha, -alpha, halfPly + 2, allowNullMovePruning);
 
-            if (halfPly > 0 && board.IsRepeatedPosition())
-                return 0;
-
-            if (inQsearch && (alpha = Max(alpha, bestScore = standPat)) >= beta)
+            if (inQsearch && (alpha = Max(alpha, bestScore = standPat)) >= beta) // the qsearch stand-pat check
                 return standPat;
             
             // Check Extensions
             if (inCheck) ++remainingDepth; // TODO: Do this before setting qsearch to disallow dropping to qsearch in check? Probably unimportant
 
-            // Internal Iterative Reduction (IIR)
-            /*else*/ if (remainingDepth > 3 /*TODO: Test with 4?*/ && ttEntry.bestMove == default) // TODO: also test for matching tt hash to only reduce fail low?
-                --remainingDepth;
-            
             // TODO: Use tuple as TT entries
 
             if (isNotPvNode && ttEntry.depth >= remainingDepth && trustTTScore)
                 return ttEntry.score;
 
+            // Internal Iterative Reduction (IIR) // TODO: Currently testing doing this after TT cutoffs, looking good so far
+            if (remainingDepth > 3 /*TODO: Test with 4? Add || !isNotPvNode?*/ && ttEntry.bestMove == default) // TODO: also test for matching tt hash to only reduce fail low?
+                --remainingDepth;
+            
             if (allowPruning)
             {
                 // Reverse Futility Pruning (RFP) // TODO: Increase depth limit?
@@ -296,7 +332,8 @@ namespace ChessChallenge.Example
             {
                 // TODO: consider move.PromotionPieceType == PieceType.Queen as non-quiet everywhere?
                 // TODO: Maybe order captures (or even quiet moves) later if the the target square is attacked (at all/by a less valuable piece), discount SEE
-                scores[moveIdx++] = -(move == ttEntry.bestMove ? 1_000_000_000 : // order the TT move first
+                scores[moveIdx++] = /*-ToInt32(board.SquareIsAttackedByOpponent(move.TargetSquare)) // maybe do this only for captures but increase offset dramatically?*/
+                    - (move == ttEntry.bestMove ? 1_000_000_000 : // order the TT move first
                     move.IsCapture ? (int)move.CapturePieceType * 1_048_576 - (int)move.MovePieceType : // then captures, ordered by MVV-LVA
                     // Giving the first killer a higher score doesn't seem to gain after 10k games
                     move == killers[halfPly] || move == killers[halfPly + 1] ? 1_000_000 : // killers
@@ -315,7 +352,7 @@ namespace ChessChallenge.Example
                         || moveIdx > 7 + remainingDepth * remainingDepth))
                     break;
                 board.MakeMove(move);
-                // adding || inQsearch and seems to lose elo, quickly fails the SPRT
+                // adding || inQsearch loses elo, quickly fails the SPRT
                 if (moveIdx++ == 0 ||
                     // Late Move Reductions (LMR), needs further parameter tuning. `reduction` is R + 1 to save tokens
                     alpha < search(alpha + 1, 
@@ -337,38 +374,38 @@ namespace ChessChallenge.Example
                     return 12345; // the value won't be used, so use a canary to detect bugs
 
                 bestScore = Max(childScore, bestScore);
-                if (childScore <= alpha) continue; // `continue` doesn't save tokens but saves identation, making the code easier to read
+                if (childScore <= alpha) continue; // `continue` doesn't save tokens but saves indentation, making the code easier to read
                 
                 localBestMove = move;
                 if (halfPly == 0) bestRootMove = localBestMove; // update in the move loop to use the result of unfinished searches (unless they failed low in the aw)
                 alpha = childScore;
                 ++flag; // saves one token over flag = 2, won't ever reach 256 so it's fine
                 if (childScore < beta) continue;
-                
+                // found a beta cutoff, now update some statistics like killer moves and history scores
 #if PRINT_DEBUG_INFO
             ++betaCutoffCtr;
             if (remainingDepth > 1) ++parentOfInnerNodeBetaCutoffCtr;
 #endif
-                if (!move.IsCapture)
-                {
-                    if (move != killers[halfPly]) // TODO: Test using only 1 killer move
-                    {
-                        killers[halfPly + 1] = killers[halfPly];
-                        killers[halfPly] = move;
-                    }
-
-                    // gravity didn't gain (TODO: Retest later when the engine is better), but history still gained quite a bit
-                    // TODO: Test from-to instead of stm-piece-to
-                    // TODO: Test reducing the history score for moves that don't raise alpha
-                    history[ToInt32(stmColor), (int)move.MovePieceType, move.TargetSquare.Index]
-                        += remainingDepth * remainingDepth;
-                }
-
                 flag = 0;
+                
+                if (move.IsCapture) break; // saves 1 token over if (!move.IsCapture) {}
+
+                if (move != killers[halfPly]) // TODO: Test using only 1 killer move
+                    killers[halfPly + 1] = killers[halfPly];
+                killers[halfPly] = move;
+
+
+                // gravity didn't gain (TODO: Retest later when the engine is better), but history still gained quite a bit
+                // TODO: Test from-to instead of stm-piece-to
+                // TODO: Test reducing the history score for moves that don't raise alpha
+                history[ToInt32(stmColor), (int)move.MovePieceType, move.TargetSquare.Index]
+                    += remainingDepth * remainingDepth;
 
                 break;
             }
-
+            
+            // After the move loop: If there were any legal moves, update the TT and return the best child score
+            
             if (moveIdx == 0) // slightly better than using `IsInCheckmate` and `IsDraw`, also not too token-hungry
                 return inQsearch ? bestScore : inCheck ? halfPly - 30_000 : 0; // being checkmated later is better (as is checkmating earlier)
 
@@ -377,34 +414,7 @@ namespace ChessChallenge.Example
 
             return bestScore;
         }
-
-
-        // ~~TODO~~: Function only called once, inline (test if that loses elo!)
-        // Eval very loosely based on JW's example bot (ie tier 2 bot)
-        // Uses a lossless "compression" of 12 bytes into one decimal literal
-        int eval()
-        {
-            // TODO: Maybe add a small "random" component like the last 4 bits of the zobrist hash to approximate mobility?
-            int phase = 0, mg = 7, eg = 7;
-            foreach (bool isWhite in new[] { stmColor, !stmColor })
-            {
-                for (int piece = 6; piece >= 1;)
-                    for (ulong mask = board.GetPieceBitboard((PieceType)piece--, isWhite); mask != 0;)
-                    {
-                        phase += pesto[1024 + piece];
-                        int psqtIndex = 16 * (BitboardHelper.ClearAndGetIndexOfLSB(ref mask) ^
-                                        56 * ToInt32(isWhite)) + piece;
-                        // The + (47 << piece) part is just a trick to encode piece values in one byte
-                        mg += pesto[psqtIndex] + (47 << piece) + pesto[piece + 1040];
-                        eg += pesto[psqtIndex + 6] + (47 << piece) + pesto[piece + 1046];
-                    }
-                mg = -mg;
-                eg = -eg;
-            }
-            return (mg * phase + eg * (24 - phase)) / 24; // if scores weren't stored as shorts in the TT, the / 24 would be unnecessary // TODO: Change TT size?
-        }
     }
-
 
         //
         //         Board b;
