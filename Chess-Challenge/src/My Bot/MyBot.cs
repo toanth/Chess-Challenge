@@ -17,6 +17,26 @@ using ChessChallenge.API;
 
 // King Gᴀᴍʙᴏᴛ, A Joke Bot
 
+// Features:
+// - Alpha-Beta Pruning Negamax
+// - Quiescent Search
+// - Move Ordering:
+// -- TT Move
+// -- MVV-LVA
+// -- Two Killer Moves
+// -- History Heuristic
+// - Transposition Table (move ordering and cutoffs)
+// - Iterative Deepening
+// - Aspiration Windows
+// - Principle Variation Search
+// - Check Extensions
+// - Null Move Pruning
+// - Late Move Reductions
+// - Reverse Futility Pruning
+// - Futility Pruning
+// - Late Move Pruning
+// - Internal Iterative Reductions
+// - Eval Function based on Piece Square Tables with custom tuned values (TODO: Use them)
 public class MyBot : IChessBot
 {
     // TODO: Likely bug with the scores? Output:
@@ -135,6 +155,7 @@ public class MyBot : IChessBot
 
     // values are from pesto for now, with a modified king middle game table unless NO_JOKE is defined
     //private byte[] pesto = compresto.SelectMany(BitConverter.GetBytes).ToArray();
+    // TODO: Inline compresto
     private byte[] pesto = compresto.SelectMany(decimal.GetBits).SelectMany(BitConverter.GetBytes).ToArray();
 
     #endregion // compresto
@@ -275,7 +296,7 @@ public class MyBot : IChessBot
             int bestScore = -32_000,
                 // using the TT score passed the SPRT with a 20 elo gain. This is a bit weird since this value is obviously
                 // incorrect if the flag isn't exact, but since it gained elo it stays like this // TODO: Retest with only trusting exact scores?
-                standPat = trustTTScore ? ttEntry.score : (mg * phase + eg * (24 - phase)) / 24, // TODO: Use -30_000 for standPat when in check? 
+                standPat = trustTTScore ? ttEntry.score : (mg * phase + eg * (24 - phase)) / 24, // Mate score when in check lost elo
                 moveIdx = 0,
                 childScore; // TODO: Merge standPat and childScore? Would make FP more difficult / token hungry
 
@@ -290,7 +311,7 @@ public class MyBot : IChessBot
             // Set the inQsearch flag after a possible checkExtension to avoid dropping into qsearch while in check (passing SPRT with +34(!) elo) 
             bool inQsearch = remainingDepth <= 0;
                 
-            if (inQsearch && (alpha = Max(alpha, bestScore = standPat)) >= beta) // the qsearch stand-pat check
+            if (inQsearch && (alpha = Max(alpha, bestScore = standPat)) >= beta) // the qsearch stand-pat check, token optimized
                 return standPat;
 
             // TODO: Use tuple as TT entries
@@ -298,8 +319,9 @@ public class MyBot : IChessBot
             if (isNotPvNode && ttEntry.depth >= remainingDepth && trustTTScore)
                 return ttEntry.score;
 
-            // Internal Iterative Reduction (IIR). Test TT move instead of hash to reduce in previous fail low nodes. Also reduce in pv nodes.
-            if (remainingDepth > 3 /*TODO: Test with 4? Add || !isNotPvNode?*/ && ttEntry.bestMove == default) // TODO: also test for matching tt hash to only reduce fail low?
+            // Internal Iterative Reduction (IIR). Tests TT move instead of hash to reduce in previous fail low nodes.
+            // It's especially important to reduce in pv nodes(!), and better to do this after(!) checking for TT cutoffs.
+            if (remainingDepth > 3 /*TODO: Test with 4?*/ && ttEntry.bestMove == default) // TODO: also test for matching tt hash to only reduce fail low?
                 --remainingDepth;
             
             if (allowPruning)
@@ -344,7 +366,7 @@ public class MyBot : IChessBot
             foreach (Move move in legalMoves)
             {
                 // Futility Pruning (FP) and Late Move Pruning (LMP). Would probably benefit from more tuning
-                if (remainingDepth <= 5 && bestScore > -29_000 && allowPruning
+                if (remainingDepth <= 5 && bestScore > -29_000 && allowPruning  // && !inQsearch doesn't gain
                     && (moveScores[moveIdx] > -1_000_000 && standPat + 300 + 64 * remainingDepth < alpha
                         || moveIdx > 7 + remainingDepth * remainingDepth))
                     break;
@@ -355,14 +377,15 @@ public class MyBot : IChessBot
                     alpha < search(alpha + 1, 
                         moveIdx < (isNotPvNode ? 3 : 4)
                         || remainingDepth <= 3
-                        || move.IsCapture
+                        || move.IsCapture // TODO: Don't reduce killer moves?
                         // the inCheck condition doesn't seem to gain, failed a [0,10] SPRT with +1.6 after 5.7k games
                             ? 1 
                             // reduction values originally from the Viridithas engine, which seem pretty widely used by now
                             // Log is expensive to compute, but precomputing would need too many tokens
-                            : Clamp((int)(0.77 + Log(remainingDepth) * Log(moveIdx) / 2.36) + ToInt32(!isNotPvNode), 1, remainingDepth - 1)
-                        ) && childScore < beta) // here, `childScore` refers to the result from the search we just did in the same statement
-                        search(beta); // pvs re-search or first move
+                            // check extensions take care of not dropping into qsearch while in check (not adding -1 to remainingDepth passes the SPRT with +34 elo)
+                            : Clamp((int)(0.77 + Log(remainingDepth) * Log(moveIdx) / 2.36) + ToInt32(!isNotPvNode), 1, remainingDepth)
+                        ) && childScore < beta) // here, `childScore` refers to the result from the zw search we just did in the same statement
+                    search(beta); // pvs re-search or first move
 
                 board.UndoMove(move);
 
