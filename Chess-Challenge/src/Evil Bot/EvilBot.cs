@@ -17,6 +17,7 @@ namespace ChessChallenge.Example
 
     public class EvilBot : IChessBot
     {
+        
     // TODO: Likely bug with the scores? Output:
     // Depth 1, score 29990, best Move: 'c8c7', nodes 0k, time 0, nps ∞k
     // Depth 2, score 1816, best Move: 'c8c7', nodes 0k, time 0, nps ∞k
@@ -244,7 +245,7 @@ namespace ChessChallenge.Example
             bool isNotPvNode = alpha + 1 >= beta,
                 inCheck = board.IsInCheck(),
                 allowPruning = isNotPvNode && !inCheck,
-                trustTTScore = ttEntry.key == board.ZobristKey
+                trustTTScore = ttEntry.key == board.ZobristKey // TODO: Retest using trustTTScore = ttEntry.key == board.ZobristKey 
                                && ttEntry.flag != 0 |
                                ttEntry.score >= beta // Token-efficient flag cut-off condition by Broxholme
                                && ttEntry.flag != 1 | ttEntry.score <= alpha,
@@ -306,16 +307,16 @@ namespace ChessChallenge.Example
             if (allowPruning)
             {
                 // Reverse Futility Pruning (RFP) // TODO: Increase depth limit? Should probably increase the scaling factor
+                // The scaling factor of 64 is really aggressive but somehow gains elo even in LTC over something like 100
                 if (!inQsearch && remainingDepth < 5 && standPat >= beta + 64 * remainingDepth)
                     return standPat;
 
                 // Null Move Pruning (NMP). TODO: Avoid zugzwang by testing phase? Probably not worth the tokens
-                if (remainingDepth >= 4 && allowNmp && standPat >= beta) // TODO: Add offset to beta
+                if (remainingDepth >= 4 && allowNmp && standPat >= beta)
                 {
                     board.ForceSkipTurn();
-                    //int reduction = 3 + remainingDepth / 5;
                     // changing the ply by a large number doesn't seem to gain elo, even though this should prevent overwriting killer moves
-                    search(beta, 3 + remainingDepth / 5, false);
+                    search(beta, 3 + remainingDepth / 4, false);
                     board.UndoSkipTurn();
                     if (childScore >= beta)
                         return childScore;
@@ -354,7 +355,7 @@ namespace ChessChallenge.Example
                 // Futility Pruning (FP) and Late Move Pruning (LMP). Would probably benefit from more tuning
                 if (remainingDepth <= 5 && bestScore > -29_000 && allowPruning  // && !inQsearch doesn't gain
                     && (uninterestingMove && standPat + 300 + 64 * remainingDepth < alpha
-                        || moveIdx > 7 + remainingDepth * remainingDepth))
+                        || moveIdx > 7 + remainingDepth * remainingDepth)) // TODO: Try adding && !inQsearch to LMP only?
                     break;
                 board.MakeMove(move);
                 // Principle Variation Search (PVS). Mostly there to have the `isNotPvNode` variable to signify which nodes are uninteresting
@@ -364,7 +365,7 @@ namespace ChessChallenge.Example
                         // Late Move Reductions (LMR), needs further parameter tuning. `reduction` is R + 1 to save tokens 
                         moveIdx >= (isNotPvNode ? 3 : 4)
                         && remainingDepth > 3 // don't do LMR at shallow depths or in qsearch
-                        && uninterestingMove // TODO: Currently testing this
+                        && uninterestingMove // Only gains a very small amount of elo over !move.IsCapture
                         // the inCheck condition doesn't seem to gain, failed a [0,10] SPRT with +1.6 after 5.7k games
                             // reduction values based on values originally from the Viridithas engine, which seem pretty widely used by now
                             // Log is expensive to compute, but precomputing would need too many tokens
