@@ -296,6 +296,7 @@ public class MyBot : IChessBot
             int bestScore = -32_000,
                 // using the TT score passed the SPRT with a 20 elo gain. This is a bit weird since this value is obviously
                 // incorrect if the flag isn't exact, but since it gained elo it stays like this // TODO: Retest with only trusting exact scores?
+                // TODO: Use qsearch result as standPat score if not in qsearch?
                 standPat = trustTTScore ? ttEntry.score : (mg * phase + eg * (24 - phase)) / 24, // Mate score when in check lost elo
                 moveIdx = 0,
                 childScore; // TODO: Merge standPat and childScore? Would make FP more difficult / token hungry
@@ -326,12 +327,12 @@ public class MyBot : IChessBot
             
             if (allowPruning)
             {
-                // Reverse Futility Pruning (RFP) // TODO: Increase depth limit?
+                // Reverse Futility Pruning (RFP) // TODO: Increase depth limit? Should probably increase the scaling factor
                 if (!inQsearch && remainingDepth < 5 && standPat >= beta + 64 * remainingDepth)
                     return standPat;
 
                 // Null Move Pruning (NMP). TODO: Avoid zugzwang by testing phase? Probably not worth the tokens
-                if (remainingDepth >= 4 && allowNmp && standPat >= beta)
+                if (remainingDepth >= 4 && allowNmp && standPat >= beta) // TODO: Add offset to beta
                 {
                     board.ForceSkipTurn();
                     //int reduction = 3 + remainingDepth / 5;
@@ -370,9 +371,11 @@ public class MyBot : IChessBot
             moveIdx = 0;
             foreach (Move move in legalMoves)
             {
+                // -1_000_000 is the killer move score, so only history moves are uninteresting
+                bool uninterestingMove = moveScores[moveIdx] > -1_000_000;
                 // Futility Pruning (FP) and Late Move Pruning (LMP). Would probably benefit from more tuning
                 if (remainingDepth <= 5 && bestScore > -29_000 && allowPruning  // && !inQsearch doesn't gain
-                    && (moveScores[moveIdx] > -1_000_000 && standPat + 300 + 64 * remainingDepth < alpha
+                    && (uninterestingMove && standPat + 300 + 64 * remainingDepth < alpha
                         || moveIdx > 7 + remainingDepth * remainingDepth))
                     break;
                 board.MakeMove(move);
@@ -381,15 +384,15 @@ public class MyBot : IChessBot
                 if (moveIdx++ == 0 || // Assume that the TT move is the best choice, so search it with a full window and everything else with a zero window
                     alpha < search(alpha + 1,
                         // Late Move Reductions (LMR), needs further parameter tuning. `reduction` is R + 1 to save tokens 
-                        moveIdx < (isNotPvNode ? 3 : 4)
-                        || remainingDepth <= 3 // don't do LMR at shallow depths or in qsearch
-                        || move.IsCapture // TODO: Don't reduce killer moves?
+                        moveIdx >= (isNotPvNode ? 3 : 4)
+                        && remainingDepth > 3 // don't do LMR at shallow depths or in qsearch
+                        && uninterestingMove // TODO: Currently testing this
                         // the inCheck condition doesn't seem to gain, failed a [0,10] SPRT with +1.6 after 5.7k games
-                            ? 1 
                             // reduction values based on values originally from the Viridithas engine, which seem pretty widely used by now
                             // Log is expensive to compute, but precomputing would need too many tokens
                             // check extensions take care of not dropping into qsearch while in check (not adding -1 to remainingDepth passes the SPRT with +34 elo)
-                            : Min((int)(1.0 + Log(remainingDepth) * Log(moveIdx) / 2.36) + ToInt32(!isNotPvNode), remainingDepth)
+                            ? Min((int)(1.0 + Log(remainingDepth) * Log(moveIdx) / 2.36) + ToInt32(!isNotPvNode), remainingDepth)
+                            : 1
                         ) && childScore < beta) // here, `childScore` refers to the result from the zw search we just did in the same statement
                     search(beta); // pvs re-search or first move
 
@@ -406,6 +409,7 @@ public class MyBot : IChessBot
                 if (halfPly == 0) bestRootMove = localBestMove; // update in the move loop to use the result of unfinished searches (unless they failed low in the aw)
                 alpha = childScore;
                 ++flag; // saves one token over flag = 2, won't ever reach 256 so it's fine
+                
                 if (childScore < beta) continue;
                 // found a beta cutoff, now update some move ordering statistics (killer moves and history scores) before breaking
 #if PRINT_DEBUG_INFO
@@ -423,14 +427,13 @@ public class MyBot : IChessBot
 
                 // gravity didn't gain (TODO: Retest later when the engine is better), but history still gained quite a bit
                 // TODO: Test from-to instead of stm-piece-to
-                // TODO: Test reducing the history score for moves that don't raise alpha
                 history[ToInt32(stmColor), (int)move.MovePieceType, move.TargetSquare.Index]
                     += remainingDepth * remainingDepth;
 
                 break;
             }
             
-            // After the move loop: If there were any legal moves, update the TT and return the best child score
+            // After the move loop: Update the TT and return the best child score
 
             ttEntry = new(board.ZobristKey, localBestMove, (short)bestScore,
                 flag, (sbyte)remainingDepth);
@@ -438,4 +441,5 @@ public class MyBot : IChessBot
             return bestScore;
         }
     }
-}
+} 
+
