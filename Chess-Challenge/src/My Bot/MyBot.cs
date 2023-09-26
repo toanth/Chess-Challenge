@@ -359,6 +359,11 @@ public class MyBot : IChessBot
                     move == killers[halfPly] || move == killers[halfPly + 1] ? 1_000_000 : // killers
                     history[ToInt32(stmColor), (int)move.MovePieceType, move.TargetSquare.Index]); // quiet history
 
+            
+            // Don't update the TT for draws and checkmates. This needs fewer tokens and gains elo (there wouldn't be a tt move anyway).
+            if (moveIdx == 0) // slightly better than using `IsInCheckmate` and `IsDraw`, also not too token-hungry
+                return inQsearch ? bestScore : inCheck ? halfPly - 30_000 : 0; // being checkmated later is better (as is checkmating earlier)
+            
             Array.Sort(moveScores, legalMoves);
 
             Move localBestMove = ttEntry.bestMove; // init to TT move to prevent overriding the TT move in fail-low nodes
@@ -371,19 +376,20 @@ public class MyBot : IChessBot
                         || moveIdx > 7 + remainingDepth * remainingDepth))
                     break;
                 board.MakeMove(move);
+                // Principle Variation Search (PVS). Mostly there to have the `isNotPvNode` variable to signify which nodes are uninteresting
                 // adding || inQsearch loses elo, quickly fails the SPRT
-                if (moveIdx++ == 0 ||
-                    // Late Move Reductions (LMR), needs further parameter tuning. `reduction` is R + 1 to save tokens
-                    alpha < search(alpha + 1, 
+                if (moveIdx++ == 0 || // Assume that the TT move is the best choice, so search it with a full window and everything else with a zero window
+                    alpha < search(alpha + 1,
+                        // Late Move Reductions (LMR), needs further parameter tuning. `reduction` is R + 1 to save tokens 
                         moveIdx < (isNotPvNode ? 3 : 4)
-                        || remainingDepth <= 3
+                        || remainingDepth <= 3 // don't do LMR at shallow depths or in qsearch
                         || move.IsCapture // TODO: Don't reduce killer moves?
                         // the inCheck condition doesn't seem to gain, failed a [0,10] SPRT with +1.6 after 5.7k games
                             ? 1 
-                            // reduction values originally from the Viridithas engine, which seem pretty widely used by now
+                            // reduction values based on values originally from the Viridithas engine, which seem pretty widely used by now
                             // Log is expensive to compute, but precomputing would need too many tokens
                             // check extensions take care of not dropping into qsearch while in check (not adding -1 to remainingDepth passes the SPRT with +34 elo)
-                            : Clamp((int)(0.77 + Log(remainingDepth) * Log(moveIdx) / 2.36) + ToInt32(!isNotPvNode), 1, remainingDepth)
+                            : Min((int)(1.0 + Log(remainingDepth) * Log(moveIdx) / 2.36) + ToInt32(!isNotPvNode), remainingDepth)
                         ) && childScore < beta) // here, `childScore` refers to the result from the zw search we just did in the same statement
                     search(beta); // pvs re-search or first move
 
@@ -393,7 +399,8 @@ public class MyBot : IChessBot
                     return 12345; // the value won't be used, so use a canary to detect bugs
 
                 bestScore = Max(childScore, bestScore);
-                if (childScore <= alpha) continue; // `continue` doesn't save tokens but saves indentation, making the code easier to read
+                if (childScore <= alpha)         
+                    continue; // `continue` doesn't save tokens but saves indentation, making the code easier to read
                 
                 localBestMove = move;
                 if (halfPly == 0) bestRootMove = localBestMove; // update in the move loop to use the result of unfinished searches (unless they failed low in the aw)
@@ -425,10 +432,6 @@ public class MyBot : IChessBot
             
             // After the move loop: If there were any legal moves, update the TT and return the best child score
 
-            // Don't update the TT for draws and checkmates. This needs fewer tokens and gains elo (there wouldn't be a tt move anyway).
-            if (moveIdx == 0) // slightly better than using `IsInCheckmate` and `IsDraw`, also not too token-hungry
-                return inQsearch ? bestScore : inCheck ? halfPly - 30_000 : 0; // being checkmated later is better (as is checkmating earlier)
-            
             ttEntry = new(board.ZobristKey, localBestMove, (short)bestScore,
                 flag, (sbyte)remainingDepth);
             
