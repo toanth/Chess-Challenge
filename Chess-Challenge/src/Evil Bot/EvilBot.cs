@@ -17,7 +17,7 @@ namespace ChessChallenge.Example
 
     public class EvilBot : IChessBot
     {
-        
+
     // TODO: Likely bug with the scores? Output:
     // Depth 1, score 29990, best Move: 'c8c7', nodes 0k, time 0, nps ∞k
     // Depth 2, score 1816, best Move: 'c8c7', nodes 0k, time 0, nps ∞k
@@ -245,16 +245,14 @@ namespace ChessChallenge.Example
             bool isNotPvNode = alpha + 1 >= beta,
                 inCheck = board.IsInCheck(),
                 allowPruning = isNotPvNode && !inCheck,
-                trustTTScore = ttEntry.key == board.ZobristKey // TODO: Retest using trustTTScore = ttEntry.key == board.ZobristKey 
-                               && ttEntry.flag != 0 |
-                               ttEntry.score >= beta // Token-efficient flag cut-off condition by Broxholme
-                               && ttEntry.flag != 1 | ttEntry.score <= alpha,
+                trustTTScore = ttEntry.key == board.ZobristKey,
                 stmColor = board.IsWhiteToMove;
 
             
             // Eval. Currently psqt only with modified PeSTO values. Uses a lossless "compression" of 12 bytes into one decimal literal
             // TODO: Maybe add a small "random" component like the last 4 bits of the zobrist hash to approximate mobility?
             int phase = 0, mg = 7, eg = 7;
+            // int phase = 0, mg = (int)board.ZobristKey & 15, eg = mg; // TODO: Test, use ttEntry key?
             foreach (bool isWhite in new[] { stmColor, !stmColor })
             {
                 for (int piece = 6; piece >= 1;)
@@ -296,7 +294,10 @@ namespace ChessChallenge.Example
 
             // TODO: Use tuple as TT entries
 
-            if (isNotPvNode && ttEntry.depth >= remainingDepth && trustTTScore)
+            if (isNotPvNode && ttEntry.depth >= remainingDepth && trustTTScore
+                               && ttEntry.flag != 0 |
+                               ttEntry.score >= beta // Token-efficient flag cut-off condition by Broxholme
+                               && ttEntry.flag != 1 | ttEntry.score <= alpha)
                 return ttEntry.score;
 
             // Internal Iterative Reduction (IIR). Tests TT move instead of hash to reduce in previous fail low nodes.
@@ -420,7 +421,6 @@ namespace ChessChallenge.Example
             return bestScore;
         }
     }
-    
         //
         //         Board b;
         //

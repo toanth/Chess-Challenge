@@ -16,7 +16,7 @@ using ChessChallenge.API;
 
 // TODO: Regression tests
 
-// King Gᴀᴍʙᴏᴛ, A Joke Bot
+// King Gᴀᴍʙᴏᴛ, A Joke Bot by toanth (aka ToTheAnd, which is easier to pronounce I guess)
 
 // Features:
 // - Alpha-Beta Pruning Negamax
@@ -26,7 +26,7 @@ using ChessChallenge.API;
 // -- MVV-LVA
 // -- Two Killer Moves
 // -- History Heuristic
-// - Transposition Table (move ordering and cutoffs)
+// - Transposition Table (move ordering and cutoffs, also used in place of static eval)
 // - Iterative Deepening
 // - Aspiration Windows
 // - Principle Variation Search
@@ -47,19 +47,19 @@ public class MyBot : IChessBot
 
     // TODO: Use tuple for this, add more 200 token optimizations
     
-    record struct TTEntry (
-        ulong key,
-        Move bestMove,
-        short score,
-        byte flag, // 1 = upper, > 1 = exact, 0 = lower
-        sbyte depth
-    );
+    // record struct TTEntry (
+    //     ulong key,
+    //     Move bestMove,
+    //     short score,
+    //     byte flag, 
+    //     sbyte depth
+    // );
 
-    // 1 << 25 entries (without the pesto values, it would technically be possible to store exactly 1 << 26 Moves with 4 byte per Move)
-    // the tt move ordering alone gained almost 400 elo
-    //private Move[] ttMoves = new Move[0x200_0000];
-
-    private TTEntry[] tt = new TTEntry[0x80_0000];
+    // the tt move ordering alone gained almost 400 elo (and >100 elo for cutoffs)
+    // flag: 1 = upper, > 1 = exact, 0 = lower
+    // key, bestMove, score, flag, depth 
+    private (ulong, Move, short, byte, sbyte)[] tt = new (ulong, Move, short, byte, sbyte)[0x80_0000];
+    // private dynamic tt = new (ulong, Move, short, byte, sbyte)[0x80_0000];
         
     private Move bestRootMove, chosenMove;
 
@@ -92,8 +92,13 @@ public class MyBot : IChessBot
     #region compresto
 
 
+    // The compression is basically the same as my public compression to ulongs,
+    // except that I'm now compressing to decimals and I'm not using the PeSTO values anymore.
+    // Instead, these are my own tuned values, which are different from my public tuned values
+    // because they are specifically tuned for King Gambot's playstyle. // TODO: Actually do that
+    // The values were tuned using Gedas' tuner: https://github.com/GediminasMasaitis/texel-tuner 
 #if NO_JOKE
-
+    // The engine plays normally
     private static decimal[] compresto = { 41259558725118300045770787m, 12148637347380221118036452643m, 17409920479543823259362417699m,
         17415950995801781949306850595m, 19582331915682275235129309987m, 27619270727875096341232753955m, 24204036247829851047561096995m,
         17716926000957032489238008611m, 19219649429467200750846752133m, 28239454489355429731532690857m, 27325506771411732918706423392m,
@@ -114,7 +119,7 @@ public class MyBot : IChessBot
 
 #else
 
-    // modified pesto values to make the king lead the army (as he should)
+    // Modified king middle game table to make the king lead the army (as he should)
 
     private static decimal[] compresto =
         //{ 41259558725125996627165219m, 12148637347380132057594602787m, 17409920479543741895501962275m, // King on the Hill
@@ -154,8 +159,6 @@ public class MyBot : IChessBot
 
 #endif
 
-    // values are from pesto for now, with a modified king middle game table unless NO_JOKE is defined
-    //private byte[] pesto = compresto.SelectMany(BitConverter.GetBytes).ToArray();
     // TODO: Inline compresto
     private byte[] pesto = compresto.SelectMany(decimal.GetBits).SelectMany(BitConverter.GetBytes).ToArray();
 
@@ -170,7 +173,8 @@ public class MyBot : IChessBot
 
         // starting with depth 0 wouldn't only be useless but also incorrect due to assumptions in negamax
         // 30_000 is used as infinity because it comfortably fits into 16 bits
-        for (int depth = 1, alpha = -30_000, beta = 30_000; depth < 64 && timer.MillisecondsElapsedThisTurn <= timer.MillisecondsRemaining / 64;)
+        for (int depth = 1, alpha = -30_000, beta = 30_000; depth < 16;)
+        // for (int depth = 1, alpha = -30_000, beta = 30_000; depth < 64 && timer.MillisecondsElapsedThisTurn <= timer.MillisecondsRemaining / 64;)
         {
             int score = negamax(depth, alpha, beta, 0, false);
             // TODO: Test returning here in case of a soft timeout?
@@ -227,9 +231,9 @@ public class MyBot : IChessBot
         
     void printPv(int remainingDepth = 15)
     {
-        var entry = tt[board.ZobristKey & 0x7f_ffff];
-        var move = entry.bestMove;
-        if (board.ZobristKey == entry.key && board.GetLegalMoves().Contains(move) && remainingDepth > 0)
+        var (key, bestMove, score, flag, depth) = tt[board.ZobristKey & 0x7f_ffff];
+        var move = bestMove;
+        if (board.ZobristKey == key && board.GetLegalMoves().Contains(move) && remainingDepth > 0)
         {
             Console.Write(move + " ");
             board.MakeMove(move);
@@ -261,22 +265,20 @@ public class MyBot : IChessBot
             if (halfPly > 0 && board.IsRepeatedPosition())
                 return 0;
             
-            ref TTEntry ttEntry = ref tt[board.ZobristKey & 0x7f_ffff];
+            var (ttKey, ttMove, ttScore, ttFlag, ttDepth) = tt[board.ZobristKey & 0x7f_ffff];
 
             // Using stackalloc doesn't gain elo
             bool isNotPvNode = alpha + 1 >= beta,
                 inCheck = board.IsInCheck(),
                 allowPruning = isNotPvNode && !inCheck,
-                trustTTScore = ttEntry.key == board.ZobristKey // TODO: Retest using trustTTScore = ttEntry.key == board.ZobristKey 
-                               && ttEntry.flag != 0 |
-                               ttEntry.score >= beta // Token-efficient flag cut-off condition by Broxholme
-                               && ttEntry.flag != 1 | ttEntry.score <= alpha,
+                trustTTScore = ttKey == board.ZobristKey,
                 stmColor = board.IsWhiteToMove;
 
             
             // Eval. Currently psqt only with modified PeSTO values. Uses a lossless "compression" of 12 bytes into one decimal literal
             // TODO: Maybe add a small "random" component like the last 4 bits of the zobrist hash to approximate mobility?
             int phase = 0, mg = 7, eg = 7;
+            // int phase = 0, mg = (int)board.ZobristKey & 15, eg = mg; // TODO: Test, use ttEntry key?
             foreach (bool isWhite in new[] { stmColor, !stmColor })
             {
                 for (int piece = 6; piece >= 1;)
@@ -298,7 +300,7 @@ public class MyBot : IChessBot
                 // using the TT score passed the SPRT with a 20 elo gain. This is a bit weird since this value is obviously
                 // incorrect if the flag isn't exact, but since it gained elo it stays like this // TODO: Retest with only trusting exact scores?
                 // TODO: Use qsearch result as standPat score if not in qsearch?
-                standPat = trustTTScore ? ttEntry.score : (mg * phase + eg * (24 - phase)) / 24, // Mate score when in check lost elo
+                standPat = trustTTScore ? ttScore : (mg * phase + eg * (24 - phase)) / 24, // Mate score when in check lost elo
                 moveIdx = 0,
                 childScore; // TODO: Merge standPat and childScore? Would make FP more difficult / token hungry
 
@@ -318,12 +320,14 @@ public class MyBot : IChessBot
 
             // TODO: Use tuple as TT entries
 
-            if (isNotPvNode && ttEntry.depth >= remainingDepth && trustTTScore)
-                return ttEntry.score;
+            if (isNotPvNode && ttDepth >= remainingDepth && trustTTScore
+                    && ttFlag != 0 | ttScore >= beta // Token-efficient flag cut-off condition by Broxholme
+                    && ttFlag != 1 | ttScore <= alpha)
+                return ttScore;
 
             // Internal Iterative Reduction (IIR). Tests TT move instead of hash to reduce in previous fail low nodes.
             // It's especially important to reduce in pv nodes(!), and better to do this after(!) checking for TT cutoffs.
-            if (remainingDepth > 3 /*TODO: Test with 4?*/ && ttEntry.bestMove == default) // TODO: also test for matching tt hash to only reduce fail low?
+            if (remainingDepth > 3 /*TODO: Test with 4?*/ && ttMove == default) // TODO: also test for matching tt hash to only reduce fail low?
                 --remainingDepth;
             
             if (allowPruning)
@@ -355,7 +359,7 @@ public class MyBot : IChessBot
             var moveScores = new int[legalMoves.Length];
             foreach (Move move in legalMoves)
                 // TODO: consider move.PromotionPieceType == PieceType.Queen as non-quiet everywhere?
-                moveScores[moveIdx++] = -(move == ttEntry.bestMove ? 1_000_000_000 : // order the TT move first
+                moveScores[moveIdx++] = -(move == ttMove ? 1_000_000_000 : // order the TT move first
                     move.IsCapture ? (int)move.CapturePieceType * 1_048_576 - (int)move.MovePieceType : // then captures, ordered by MVV-LVA
                     // Giving the first killer a higher score doesn't seem to gain after 10k games
                     move == killers[halfPly] || move == killers[halfPly + 1] ? 1_000_000 : // killers
@@ -368,7 +372,7 @@ public class MyBot : IChessBot
             
             Array.Sort(moveScores, legalMoves);
 
-            Move localBestMove = ttEntry.bestMove; // init to TT move to prevent overriding the TT move in fail-low nodes
+            Move localBestMove = ttMove; // init to TT move to prevent overriding the TT move in fail-low nodes
             moveIdx = 0;
             foreach (Move move in legalMoves)
             {
@@ -436,11 +440,12 @@ public class MyBot : IChessBot
             
             // After the move loop: Update the TT and return the best child score
 
-            ttEntry = new(board.ZobristKey, localBestMove, (short)bestScore,
-                flag, (sbyte)remainingDepth);
+            // TODO: Update the TT when raising alpha? Might benefit transpositions, although probably not enough to pay for the speed hit (way more cache pressure)
+            tt[board.ZobristKey & 0x7f_ffff] = (board.ZobristKey, localBestMove, (short)bestScore, flag, (sbyte)remainingDepth);
+                // new(board.ZobristKey, localBestMove, (short)bestScore,
+                // flag, (sbyte)remainingDepth));
             
             return bestScore;
         }
     }
 } 
-
