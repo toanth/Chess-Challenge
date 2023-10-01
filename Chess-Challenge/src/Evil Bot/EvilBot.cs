@@ -198,7 +198,10 @@ namespace ChessChallenge.Example
         // use longs for history scores to avoid overflow issues with high depths
         var history = new long[2, 7, 64];
         var killers = new Move[256];
-
+        
+                // if (!ToBoolean(0x0101_0101_0101_0101UL << board.GetKingSquare(board.IsWhiteToMove).File
+                //       & board.GetPieceBitboard(PieceType.Pawn, !board.IsWhiteToMove)))
+                //             BitboardHelper.VisualizeBitboard(0x0101_0101_0101_0101UL << board.GetKingSquare(board.IsWhiteToMove).File);
         // starting with depth 0 wouldn't only be useless but also incorrect due to assumptions in negamax
         // 30_000 is used as infinity because it comfortably fits into 16 bits
         // History scores can only handle depths less than 63 (msb for positive longs), so use that as upper bound on the dpeth
@@ -280,7 +283,7 @@ namespace ChessChallenge.Example
         int negamax(int remainingDepth, int alpha, int beta, int halfPly, bool allowNmp)
         {
 #if PRINT_DEBUG_INFO
-            ++allNodeCtr;
+            ++allNodeCtr; // apparently, it's more common to count nodes right after the MakeMove call, but this should work as well for nps.
             if (remainingDepth > 0) ++nonQuiescentNodeCtr;
             if (remainingDepth > 1) ++parentOfInnerNodeCtr;
             System.Diagnostics.Debug.Assert(alpha < beta); // spell out name to avoid having to guard the additional using directive with PRINT_DEBUG_INFO
@@ -316,10 +319,22 @@ namespace ChessChallenge.Example
                         phase += pesto[1024 + piece];
                         int psqtIndex = 16 * (BitboardHelper.ClearAndGetIndexOfLSB(ref mask) ^
                                               56 * ToInt32(isWhite)) + piece;
-                        // The + (47 << piece) part is just a trick to encode piece values in one byte
+                        // The + (<constant> << piece) part is just a trick to encode piece values in one byte
                         mg += pesto[psqtIndex] + (35 << piece) + pesto[piece + 1040];
                         eg += pesto[psqtIndex + 6] + (56 << piece) + pesto[piece + 1046];
+                        // if (piece == 2 && mask != 0) // Bishop pair bonus
+                        // {
+                        //     mg += 12;
+                        //     eg += 15;
+                        // }
                     }
+                
+                // Penalize Kings on opponent's semi open files. Expressed as giving a bonus when that's not the case
+                // to save tokens; the boni will cancel each other out to calculate the same result // TODO: Tune constant
+                // Worth 10 elo untuned
+                if (ToBoolean(0x0101_0101_0101_0101UL << board.GetKingSquare(isWhite).File
+                      & board.GetPieceBitboard(PieceType.Pawn, !isWhite)))
+                    mg += 10;
                 mg = -mg;
                 eg = -eg;
             }
@@ -399,7 +414,9 @@ namespace ChessChallenge.Example
 
             
             // Don't update the TT for draws and checkmates. This needs fewer tokens and gains elo (there wouldn't be a tt move anyway).
-            if (moveIdx == 0) // slightly better than using `IsInCheckmate` and `IsDraw`, also not too token-hungry
+            // This condition is slightly better than using `IsInCheckmate` and `IsDraw`, also not too token-hungry
+            // Thanks to @cj5716 for this suggestion.
+            if (moveIdx == 0)
                 return inQsearch ? bestScore : inCheck ? halfPly - 30_000 : 0; // being checkmated later is better (as is checkmating earlier)
             
             Array.Sort(moveScores, legalMoves);
