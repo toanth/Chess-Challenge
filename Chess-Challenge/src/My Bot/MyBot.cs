@@ -15,6 +15,7 @@ using System.Linq;
 using ChessChallenge.API;
 
 // King Gᴀᴍʙᴏᴛ, A Joke Bot by toanth (aka ToTheAnd, which is easier to pronounce I guess)
+// Thanks to everyone on the discord server who helped me write this engine (I can't list all names, you know who you are!)
 
 // Features:
 // - Alpha-Beta Pruning Negamax
@@ -29,13 +30,19 @@ using ChessChallenge.API;
 // - Aspiration Windows
 // - Principle Variation Search
 // - Check Extensions
+// - Pawn Move to 2nd/7th Rank Extensions (aka Passed Pawn Extensions)
 // - Null Move Pruning
 // - Late Move Reductions
 // - Reverse Futility Pruning
 // - Futility Pruning
 // - Late Move Pruning
 // - Internal Iterative Reductions
-// - Eval Function based on Piece Square Tables with custom tuned values (TODO: Use them)
+// - Eval Function:
+// -- Piece Square Tables
+// -- King on (Semi) Open File Malus
+// -- Bishop Pair Bonus
+// -- All eval weights tuned specifically for Gᴀᴍʙᴏᴛ using Gedas' tuner: https://github.com/GediminasMasaitis/texel-tuner
+
 public class MyBot : IChessBot
 {
     // TODO: Likely bug with the scores? Output:
@@ -49,7 +56,7 @@ public class MyBot : IChessBot
     private (ulong, Move, short, byte, sbyte)[] tt = new (ulong, Move, short, byte, sbyte)[0x80_0000];
     // private dynamic tt = new (ulong, Move, short, byte, sbyte)[0x80_0000];
         
-    private Move bestRootMove, chosenMove;
+    private Move bestRootMove;
 
 #if PRINT_DEBUG_INFO
     long allNodeCtr;
@@ -80,13 +87,13 @@ public class MyBot : IChessBot
     #region compresto
 
 
-    // The compression is basically the same as my public compression to ulongs,
+    // The "compression" is basically the same as my public (i.e., posted on Discord) compression to ulongs,
     // except that I'm now compressing to decimals and I'm not using the PeSTO values anymore.
     // Instead, these are my own tuned values, which are different from my public tuned values
-    // because they are specifically tuned for King Gambot's playstyle. // TODO: Actually do that
+    // because they are specifically tuned for King Gᴀᴍʙᴏᴛ's playstyle.
     // The values were tuned using Gedas' tuner: https://github.com/GediminasMasaitis/texel-tuner 
     // Interestingly, my general tuned values provided ~40 elo over PeSTO values for some (most/all? Idk)
-    // challenge engines but performed worse than PeSTO when substituting the joke king mg table.
+    // challenge engines but performed only slightly better than PeSTO when substituting the joke king mg table.
     // So, these values are tuned under the assumption that the king mg table is modified.
 #if NO_JOKE
     // The engine plays normally
@@ -112,7 +119,7 @@ public class MyBot : IChessBot
 
     // Modified king middle game table to make the king lead the army (as he should)
 
-    private static decimal[] compresto =
+    private static readonly byte [] weights = new[]
         //{ 41259558725125996627165219m, 12148637347380132057594602787m, 17409920479543741895501962275m, // King on the Hill
         //17415950995801734670306856227m, 19582331915682273036106054435m, 27619270727875069952953687331m, 24204036247829785076863430435m,
         //17716926000956954423912436515m, 19219649429467103993823507845m, 28239454489355386850579207593m, 27325506771411738416264562272m,
@@ -175,54 +182,27 @@ public class MyBot : IChessBot
         // };
 
         // tuned values with additional score, Gᴀᴍʙᴏᴛ
+
         {
-            202032727901206958747746347m, 15683560610970601588213027883m, 17870549884283302650781783851m,
-            28990245127361282604894542635m, 25266720527791985415080153899m, 27424586835715893129175969067m,
-            26146718930356066592718465579m, 2670569542732006675708458283m, 26168564394054734646605863791m,
-            34264821258762856091397748601m, 37094921435596330217514380653m, 33404023703585393570548064396m,
-            38065650997060565373609160059m, 41417973793843927076591951230m, 41125385725340765449203847204m,
-            32678497687108528055083373324m, 30507418622956021069546224151m, 35789224808574255742967193901m,
-            41408316944998572352213723982m, 43572275069361598967696114771m, 44218993805318316607370289751m,
-            42637695276622706808039276399m, 42895158456898981447882291545m, 35159232746639314236677465133m,
-            27421045025776041716743370253m, 37666677569233533851789591079m, 42630569302044432246946765356m,
-            46685278443818733592735822639m, 46702137144441414245177203781m, 45443607494625782331555822140m,
-            42948375176012358681995151427m, 36110676257417316333637441833m, 23712032240242434431242168064m,
-            33645804293404216490898519840m, 41080703066378838570169763102m, 46063885684074707331213723442m,
-            46051782295888210423029010737m, 42637761613405541385647918121m, 38598683651470857672953335349m,
-            33629988625655283073455320600m, 21834542033167700960459313920m, 29273058157177022570397329948m,
-            36119209907344222244872485661m, 39822168564998755074933554204m, 40140106703128525938580031532m,
-            37654507955856982993454660642m, 31759690916364561135598534724m, 27717047438601909797166014758m,
-            15953084789959699439081768962m, 24616266067043496984046752289m, 28943021094753778159182439194m,
-            32666527026218917218967056657m, 33605829442103073781240983586m, 30473478847108531070575670842m,
-            24559342882600386807454264152m, 18633235203338871238227682852m, 6348135745196777106046393131m,
-            11304793401272654879670293803m, 17496953510509346998808690987m, 23666083632299481756425802027m,
-            15335352105124824356109243691m, 23073667423761503833956967467m, 14380248445697457900238033707m,
-            5380928828440072953704820267m, 5380928828440072657381163264m, 50430120948320696663091545348m,
-        };
-
-
-
-
+            202028005462385032922398763m, 15683555888459722072661496875m, 17869331513586325640705234475m, 28990240386403659015633526059m, 25267920008806295253079331627m, 27423373150491910832718950187m, 26147923115218057615435377195m, 2671769023818374090582208555m, 26167350727277496428153297774m, 34264821240171433896805103480m, 37093712491185856347995483756m, 33404023703440996928936714379m, 38065646256175280853362781819m, 41416755404700487463504436350m, 41124162613758785359581778212m, 32678488223712082509965594893m, 30507413881998116005291588118m, 35789220086063376227415662893m, 41407103296740417276502125389m, 43572270346851000931416261714m, 44217780157060443010930368855m, 42636476887479267199246729070m, 42892731141935645734938327646m, 35159228024128434721125934127m, 27419831377517323695373317644m, 37666672846722935811197993510m, 42630564579605891804704774699m, 46682855869740963887832740654m, 46699714570291586954842905670m, 45442393846367908730804156987m, 42947161527754203610578519881m, 36111875738359568577598626347m, 23710818573537253806844241664m, 33644590645145779944488400672m, 41080703066306780997573051677m, 46061463091550475027594577712m, 46050568647557997757574517042m, 42636552669067125110150171688m, 38598678928960259636673547836m, 33631192829036075781133266458m, 21833333107203689689673257728m, 29273058157104683518528875035m, 36119205166386880130571336476m, 39822163842560214628396661786m, 40140106702984410767650490413m, 37654503233418442546917702688m, 31759690897845759484997304395m, 27717047438529570749609369896m, 15953084789815021318198675458m, 24616261344604675062516372000m, 28943021094681720582290694937m, 32666527026146859646353567759m, 33605824701217507786017828901m, 30473478846964415899646129721m, 24558129234270174137704737887m, 18633235203266532182097946406m, 6348135745124438054178003499m, 11304793382753571754075575339m, 17496948769551723409530831147m, 23666083632155085110502707499m, 15334143179232870679344338219m, 23072453775503067283268723755m, 14380243723258635978741207595m, 5380928828295676307832123179m, 5380928828295675994328596736m, 60346967836303588818065982725m
+            
+        }
+        .SelectMany(decimal.GetBits).SelectMany(BitConverter.GetBytes).ToArray();
+    
 #endif
 
-    // TODO: Inline compresto
-    private byte[] pesto = compresto.SelectMany(decimal.GetBits).SelectMany(BitConverter.GetBytes).ToArray();
-
-    #endregion // compresto
+#endregion // weights
 
 
 
     public Move Think(Board board, Timer timer)
     {
-        // Pesto.printCompressedPsqt(); // TODO: Remove this line
+        Pesto.printCompressedPsqt(); // TODO: Remove this line
         
         // use longs for history scores to avoid overflow issues with high depths
         var history = new long[2, 7, 64];
         var killers = new Move[256];
         
-                // if (!ToBoolean(0x0101_0101_0101_0101UL << board.GetKingSquare(board.IsWhiteToMove).File
-                //       & board.GetPieceBitboard(PieceType.Pawn, !board.IsWhiteToMove)))
-                //             BitboardHelper.VisualizeBitboard(0x0101_0101_0101_0101UL << board.GetKingSquare(board.IsWhiteToMove).File);
         // starting with depth 0 wouldn't only be useless but also incorrect due to assumptions in negamax
         // 30_000 is used as infinity because it comfortably fits into 16 bits
         // History scores can only handle depths less than 63 (msb for positive longs), so use that as upper bound on the dpeth
@@ -230,12 +210,11 @@ public class MyBot : IChessBot
         for (int depth = 1, alpha = -30_000, beta = 30_000; depth < 63 && timer.MillisecondsElapsedThisTurn <= timer.MillisecondsRemaining / 64;)
         {
             int score = negamax(depth, alpha, beta, 0, false);
+            // Aspiration Windows (AW): Assume that our search will return a similar score to the last time we searched,
+            // so set alpha and beta around that score and gradually widen if that assumption gets disproven
             // excluding checkmate scores was inconclusive after 6000 games, so likely not worth the tokens
-            if (score <= alpha) alpha = score; // don't update `chosenMove` on a fail-low. Gains surprisingly little elo, but it's still a gain.
-            else if (score >= beta) {
-                beta = score;
-                chosenMove = bestRootMove; 
-            }
+            if (score <= alpha) alpha = score;
+            else if (score >= beta) beta = score;
             else
             {
 #if PRINT_DEBUG_INFO
@@ -245,10 +224,9 @@ public class MyBot : IChessBot
 #endif
 #if GUI_INFO
                 lastDepth = depth;
-                if (score != 12345) lastScore = score; // don't display the canary value of an unfinished search (the chosen move may still have been updated)
+                if (score <= 30_000) lastScore = score; // don't display the canary value of an unfinished search (the chosen move may still have been updated)
 #endif
                 alpha = beta = score; // reset window to be centered on the current score, will be widened shortly
-                chosenMove = bestRootMove;
                 ++depth;
             }
 
@@ -285,7 +263,7 @@ public class MyBot : IChessBot
         
     void printPv(int remainingDepth = 15)
     {
-        var (key, bestMove, score, flag, depth) = tt[board.ZobristKey & 0x7f_ffff];
+        var (key, bestMove, _, _, _) = tt[board.ZobristKey & 0x7f_ffff];
         var move = bestMove;
         if (board.ZobristKey == key && board.GetLegalMoves().Contains(move) && remainingDepth > 0)
         {
@@ -297,7 +275,7 @@ public class MyBot : IChessBot
     }
 #endif
 
-        return chosenMove; // The end. Now follow some methods that have been turned into local functions to save tokens
+        return bestRootMove; // The end. Now follow some methods that have been turned into local functions to save tokens
 
         // The recursive search function. Returns a score and also sets `bestRootMove`, which will eventually be returned by `Think`.
         // halfPly (ie quarter move) instead of ply to save tokens when accessing killers
@@ -319,7 +297,7 @@ public class MyBot : IChessBot
             if (board.IsRepeatedPosition()) // no need to check for halfPly > 0 here as the method already does essentially the same
                 return 0;
             ulong ttIndex = board.ZobristKey & 0x7f_ffff;
-            var (ttKey, ttMove, ttScore, ttFlag, ttDepth) = tt[ttIndex];
+            var (ttKey, bestMove, ttScore, ttFlag, ttDepth) = tt[ttIndex];
 
             // Using stackalloc doesn't gain elo
             bool isNotPvNode = alpha + 1 >= beta,
@@ -329,7 +307,7 @@ public class MyBot : IChessBot
                 stmColor = board.IsWhiteToMove;
 
             
-            // Eval. Currently psqt only with modified PeSTO values. Uses a lossless "compression" of 12 bytes into one decimal literal
+            // Eval. Uses a lossless "compression" of 12 bytes into one decimal literal.
             // Using a small "random" component (the last 4 bits of the zobrist hash) as tempo bonus to approximate mobility didn't gain :/
             int phase = 0, mg = 7, eg = 7;
             foreach (bool isWhite in new[] { stmColor, !stmColor })
@@ -337,12 +315,12 @@ public class MyBot : IChessBot
                 for (int piece = 6; piece >= 1;)
                     for (ulong mask = board.GetPieceBitboard((PieceType)piece--, isWhite); mask != 0;)
                     {
-                        phase += pesto[1024 + piece];
+                        phase += weights[1024 + piece];
                         int psqtIndex = 16 * (BitboardHelper.ClearAndGetIndexOfLSB(ref mask) ^
                                               56 * ToInt32(isWhite)) + piece;
                         // The + (<constant> << piece) part is just a trick to encode piece values in one byte
-                        mg += pesto[psqtIndex] + (35 << piece) + pesto[piece + 1040];
-                        eg += pesto[psqtIndex + 6] + (56 << piece) + pesto[piece + 1046];
+                        mg += weights[psqtIndex] + (35 << piece) + weights[piece + 1040];
+                        eg += weights[psqtIndex + 6] + (56 << piece) + weights[piece + 1046];
                         // if (piece == 2 && mask != 0) // Bishop pair bonus
                         // {
                         //     mg += 12;
@@ -354,13 +332,13 @@ public class MyBot : IChessBot
                 // to save tokens; the boni will cancel each other out to calculate the same result // TODO: Tune constant
                 // Worth 10 elo untuned
                 if (ToBoolean(0x0101_0101_0101_0101UL << board.GetKingSquare(isWhite).File
-                      & board.GetPieceBitboard(PieceType.Pawn, !isWhite)))
-                    mg += 10;
+                              & board.GetPieceBitboard(PieceType.Pawn, !isWhite)))
+                    mg += 20;
+
                 mg = -mg;
                 eg = -eg;
             }
-            // return (mg * phase + eg * (24 - phase)) / 24; // if scores weren't stored as shorts in the TT, the / 24 would be unnecessary // TODO: Change TT size?
-            
+                        
             int bestScore = -32_000,
                 // using the TT score passed the SPRT with a 20 elo gain. This is a bit weird since this value is obviously
                 // incorrect if the flag isn't exact, but since it gained elo over only trusting exact scores it stays like this
@@ -368,15 +346,18 @@ public class MyBot : IChessBot
                 // the current ab bounds, so inexact scores are still closer to the truth than the static eval on average
                 // (and using the static eval in non-quiet positions is a bad idea anyway), so this leads to better (nmp/rfp/fp) pruning
                 // TODO: Use qsearch result as standPat score if not in qsearch?
+                // if scores weren't stored as shorts in the TT, the / 24 would be unnecessary // TODO: Change TT size?
                 standPat = trustTTEntry ? ttScore : (mg * phase + eg * (24 - phase)) / 24, // Mate score when in check lost elo
                 moveIdx = 0,
-                // extension = 0, only used for passed pawn extensions, which have a bad token/elo ratio
+                passedPawnExtension = 0, //only used for passed pawn extensions, TODO: Rename
                 childScore; // TODO: Merge standPat and childScore? Would make FP more difficult / token hungry
 
-            byte flag = 1;
-            
+            // Idea of using a local function for the recursion to save tokens originally from Tyrant (I think?),
+            // whose engine was very influential (for many strong engines in the discord server) in general.
+            // That being said, I've noticed a lot of similarities to his engines that have arisen through some kind
+            // of "convergent evolution" when saving tokens instead of through copy-pasting / reading source code.
             int search(int minusNewAlpha, int reduction = 1, bool allowNullMovePruning = true) =>
-                childScore = -negamax(remainingDepth - reduction /*+ extension*/, -minusNewAlpha, -alpha, halfPly + 2, allowNullMovePruning);
+                childScore = -negamax(remainingDepth - reduction + passedPawnExtension, -minusNewAlpha, -alpha, halfPly + 2, allowNullMovePruning);
 
             // Check Extensions
             if (inCheck) ++remainingDepth;
@@ -389,13 +370,14 @@ public class MyBot : IChessBot
 
             if (isNotPvNode && ttDepth >= remainingDepth && trustTTEntry
                     && ttFlag != 0 | ttScore >= beta // Token-efficient flag cut-off condition by Broxholme
-                    && ttFlag != 1 | ttScore <= alpha)
+                    && ttFlag != 1 | ttScore <= alpha) // TODO: Use cj's even more token-efficient condition
                 return ttScore;
 
+            ttFlag = 1;
             // Internal Iterative Reduction (IIR). Tests TT move instead of hash to reduce in previous fail low nodes.
             // It's especially important to reduce in pv nodes(!), and better to do this after(!) checking for TT cutoffs.
             // TODO: Do after nmp?
-            if (remainingDepth > 3 /*TODO: Test with 4?*/ && ttMove == default) // TODO: also test for matching tt hash to only reduce fail low?
+            if (remainingDepth > 3 /*TODO: Test with 4?*/ && bestMove == default) // TODO: also test for matching tt hash to only reduce fail low?
                 --remainingDepth;
             
             if (allowPruning)
@@ -426,13 +408,12 @@ public class MyBot : IChessBot
             // using this manual for loop and Array.Sort gained about 50 elo compared to OrderByDescending
             var moveScores = new long[legalMoves.Length];
             foreach (Move move in legalMoves)
-                moveScores[moveIdx++] = -(move == ttMove ? 2_000_000_000 // order the TT move first
+                moveScores[moveIdx++] = -(move == bestMove ? 2_000_000_000 // order the TT move first
                     // Considering queen promotions as non-quiet moves didn't gain
                     : move.IsCapture ? (int)move.CapturePieceType * 268_435_456 - (int)move.MovePieceType // then captures, ordered by MVV-LVA
                     // Giving the first killer a higher score doesn't seem to gain after 10k games
                     : move == killers[halfPly] || move == killers[halfPly + 1] ? 250_000_000 // killers (use a score > most history scores)
                     : history[ToInt32(stmColor), (int)move.MovePieceType, move.TargetSquare.Index]); // quiet history
-
             
             // Don't update the TT for draws and checkmates. This needs fewer tokens and gains elo (there wouldn't be a tt move anyway).
             // This condition is slightly better than using `IsInCheckmate` and `IsDraw`, also not too token-hungry
@@ -442,7 +423,6 @@ public class MyBot : IChessBot
             
             Array.Sort(moveScores, legalMoves);
 
-            Move localBestMove = ttMove; // init to TT move to prevent overriding the TT move in fail-low nodes
             moveIdx = 0;
             // Also a possible idea: using a parameter parentMove, which can be used for 7th rank pawn move extensions
             foreach (Move move in legalMoves) // Still fewer tokens than writing while (--moveIdx >= 0)
@@ -454,10 +434,11 @@ public class MyBot : IChessBot
                     && (uninterestingMove && standPat + 300 + 64 * remainingDepth < alpha
                         || moveIdx > 7 + remainingDepth * remainingDepth)) // TODO: Try adding && !inQsearch to LMP only?
                     break;
-                // Passed pawn extensions are only worth ~10 elo for 26 tokens
-                // // Passed Pawn Extensions: Pawn moves to the 7th/2nd rank are extended to mitigate the horizon effect before the promotion
-                // extension = ToInt32(move.MovePieceType == PieceType.Pawn &&
-                //                     move.TargetSquare.Rank % 5 == 1); // same number of tokens as the `is` statement, but without a bugged token count
+                // Passed pawn extensions are only worth ~10 elo for 26 tokens, but seem to be rather uncommon,
+                // which makes King Gᴀᴍʙᴏᴛ be NoT lIkE tHe OtHeR eNgInEs
+                // Passed Pawn Extensions (PPE): Pawn moves to the 7th/2nd rank are extended to mitigate the horizon effect before the promotion
+                // same number of tokens as the `is` statement, but without a bugged token count (I hope)
+                passedPawnExtension = ToInt32(move.MovePieceType == PieceType.Pawn && move.TargetSquare.Rank % 5 == 1);
                 board.MakeMove(move);
                 // Principle Variation Search (PVS). Mostly there to have the `isNotPvNode` variable to signify which nodes are uninteresting
                 // adding || inQsearch loses elo, quickly fails the SPRT
@@ -470,7 +451,7 @@ public class MyBot : IChessBot
                         // the inCheck condition doesn't seem to gain, failed a [0,10] SPRT with +1.6 after 5.7k games
                             // reduction values based on values originally from the Viridithas engine, which seem pretty widely used by now
                             // Log is expensive to compute, but precomputing would need too many tokens
-                            // check extensions take care of not dropping into qsearch while in check (not adding -1 to remainingDepth passes the SPRT with +34 elo)
+                            // check extensions ensure we don't drop into qsearch while in check (not adding -1 to remainingDepth passed the SPRT with +34 elo)
                             ? Min((int)(1.0 + Log(remainingDepth) * Log(moveIdx) / 2.36) + ToInt32(!isNotPvNode), remainingDepth)
                             : 1
                         ) && childScore < beta) // here, `childScore` refers to the result from the zw search we just did in the same statement
@@ -479,16 +460,19 @@ public class MyBot : IChessBot
                 board.UndoMove(move);
 
                 if (timer.MillisecondsElapsedThisTurn * 16 > timer.MillisecondsRemaining) // time management hard bound
-                    return 12345; // the value won't be used, so use a canary to detect bugs
+                    // the value won't be used, so use a canary to detect bugs (also needs to be big enough to fail low in the parent node)
+                    return 30_999;
 
                 bestScore = Max(childScore, bestScore);
                 if (childScore <= alpha)         
                     continue; // `continue` doesn't save tokens but saves indentation, making the code easier to read
                 
-                localBestMove = move;
-                if (halfPly == 0) bestRootMove = localBestMove; // update in the move loop to use the result of unfinished searches (unless they failed low in the aw)
+                bestMove = move;
+                // Update in the move loop to use the result of unfinished searches
+                // Since this is executed only for moves that raise alpha, it won't change the move if the aw failed low
+                if (halfPly == 0) bestRootMove = bestMove;
                 alpha = childScore;
-                ++flag; // saves one token over flag = 2, won't ever reach 256 so it's fine
+                ++ttFlag; // saves one token over ttFlag = 2, won't ever reach 256 so it's fine
                 
                 if (childScore < beta) continue;
                 // found a beta cutoff, now update some move ordering statistics (killer moves and history scores) before breaking
@@ -496,7 +480,7 @@ public class MyBot : IChessBot
             ++betaCutoffCtr;
             if (remainingDepth > 1) ++parentOfInnerNodeBetaCutoffCtr;
 #endif
-                flag = 0;
+                ttFlag = 0;
                 
                 if (move.IsCapture) break; // saves 1 token over if (!move.IsCapture) {}
     
@@ -512,8 +496,8 @@ public class MyBot : IChessBot
                 // histValue += increment - histValue * increment / 524_288;
                 
                 // From-To instead of color-piece-to lost around 5 elo, which would arguably be worth it for the saved tokens,
-                // but I feel like this is a bit more unique, at least
-                // 1 << remainingDepth gained over remainingDepth * remainingDepth
+                // but I feel like this is a bit more unusual, at least
+                // 1 << remainingDepth seemed to gain over remainingDepth * remainingDepth, and it's a bit more unique
                 history[ToInt32(stmColor), (int)move.MovePieceType, move.TargetSquare.Index]
                     += 1L << remainingDepth; // remainingDepth can't be negative because then the move wouldn't be quiet
 
@@ -522,73 +506,9 @@ public class MyBot : IChessBot
             
             // After the move loop: Update the TT and return the best child score
 
-            tt[ttIndex] = (board.ZobristKey, localBestMove, (short)bestScore, flag, (sbyte)remainingDepth);
+            tt[ttIndex] = (board.ZobristKey, bestMove, (short)bestScore, ttFlag, (sbyte)remainingDepth);
             
             return bestScore;
         }
     }
 }
-    
-    // int eval()
-    // {
-    //     int phase = 0, mg = 0, eg = 0;
-    //     foreach (bool stm in new[] { true, false })
-    //     {
-    //         for (var p = PieceType.None; ++p <= PieceType.King;)
-    //         {
-    //             int piece = (int)p - 1, square, index; // square isn't necessary at this point, but useful for other evaluation features
-    //             ulong mask = board.GetPieceBitboard(p, stm);
-    //             while (mask != 0)
-    //             {
-    //                 phase += pesto[768 + piece];
-    //                 square = BitboardHelper.ClearAndGetIndexOfLSB(ref mask);
-    //                 index = square ^ (stm ? 56 : 0) + 64 * piece;
-    //                 //if (piece == 5 /*&& stm == us*/)
-    //                 //{
-    //                 //    int rank = square >> 3;
-    //                 //    mg += 32 * (stm ? rank : 7 - rank);
-    //                 //} else
-    //                 mg += pesto[index] + (47 << piece) + pesto[piece + 776];
-    //                 eg += pesto[index + 384] + (47 << piece) + pesto[piece + 782];
-    //
-    //                 //                    // passed pawns detection, doesn't increase elo
-    //                 //                    ulong fileMask = (((0x700ul << square % 8 >> 1) & 0xff00) * 0x1010101010101);
-    //                 //                    ulong passedPawnMask = (stm ? fileMask << (square & 0xf8) : fileMask >> (8 + (square & 0xf8 ^ 56)));
-    //                 //                    if (piece == 0 && (b.GetPieceBitboard(p, !stm) & passedPawnMask) == 0)
-    //                 //                    {
-    //                 //#if PRINT_DEBUG_INFO
-    //                 //                        BitboardHelper.VisualizeBitboard(passedPawnMask);
-    //                 //                        Console.WriteLine("Passed pawn: {0}", newSquare(square).ToString());
-    //                 //#endif
-    //                 //                        eg += (square ^ (stm ? 0 : 56)) / 8 * 20;
-    //                 //                    }
-    //             }
-    //         }
-    //
-    //         // king safety: Is the king on a semi open file?
-    //         //+ (((b.GetPieceBitboard(PieceType.Pawn, !stm) >> b.GetKingSquare(stm).File) & 0x0001_0101_0101_0101) == 0 ? 0 : 50)
-    //         // king safety: Replace the king by a virtual queen and count the number of squares it can reach as a measure of how open the king is.
-    //         // This is a very crude approximation, but doesn't require too many tokens. (Scale by negative amount for endgame?)
-    //         //mg -= 7 * BitboardHelper.GetNumberOfSetBits(BitboardHelper.GetPieceAttacks(PieceType.Queen, b.GetKingSquare(stm), stm ? b.WhitePiecesBitboard : b.BlackPiecesBitboard, stm));
-    //         mg = -mg;
-    //         eg = -eg;
-    //     }
-    //
-    //     // mopup: Bring the king closer to the opponent's king when there are no more pawns and we are ahead in material. Doesn't gain a lot of elo.
-    //     //Square whiteKing = board.GetKingSquare(true), blackKing = board.GetKingSquare(false);
-    //     //if (phase < 7 && board.GetAllPieceLists()[0].Count + board.GetAllPieceLists()[6].Count == 0)
-    //     //    eg += (12 - Math.Abs(whiteKing.Rank - blackKing.Rank) + Math.Abs(whiteKing.File - blackKing.File)) * (eg > 300 ? 12 : eg < -300 ? -12 : 0);
-    //     // TODO: The bot still undervalues pawns in endgames, eg preferring a bishop to two pawns
-    //
-    //     return (mg * phase + eg * (24 - phase)) / (board.IsWhiteToMove ? 24 : -24);
-    //
-    //     // int res = (mg * phase + eg * (24 - phase)) / 24 * (b.IsWhiteToMove ? 1 : -1);
-    //     // int expected = Pesto.originalPestoEval(b);
-    //     // if (res != expected)
-    //     // {
-    //     //     Console.WriteLine("eval was {0}, should be {1}", res, expected);
-    //     //     Console.WriteLine(b.CreateDiagram());
-    //     //     Debug.Assert(false);
-    //     // }
-    //     // return res;
-    // }
