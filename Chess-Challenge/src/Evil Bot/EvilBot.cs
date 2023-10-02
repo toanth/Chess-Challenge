@@ -169,7 +169,6 @@ namespace ChessChallenge.Example
 
     public Move Think(Board board, Timer timer)
     {
-        Pesto.printCompressedPsqt(); // TODO: Remove this line
         
         // use longs for history scores to avoid overflow issues with high depths
         var history = new long[2, 7, 64];
