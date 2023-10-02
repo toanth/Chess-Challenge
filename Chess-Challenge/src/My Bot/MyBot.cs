@@ -17,10 +17,11 @@ using ChessChallenge.API;
 
 /***********************************************************************************************************************
  The noble King Gᴀᴍʙᴏᴛ Ⅳ, ruling King of the Hill, has mustered a large army to fight off the vile invaders threatening
- his lands. A veteran of many battles, His Highness prefers to personally lead his troops, charging at his foes.
+ his lands. A veteran of many battles, His Highness prefers to personally lead his troops, charging at his foes wit no
+ heed for his own safety.
  This radical approach to strategy has already cost the life of all of his ancestors, but the Gᴀᴍʙᴏᴛ dynasty values courage
  above all else. Eager to prove once more that he is not a craven, the King will be found where the fighting
- is thickest. Despite this apparent foolishness, King Gᴀᴍʙᴏᴛ Ⅳ is a shrewd tactician and will mercilessly crush any
+ is thickest! Despite this apparent foolishness, King Gᴀᴍʙᴏᴛ Ⅳ is a shrewd tactician and will mercilessly crush any
  pretender (Estimated Strength: > 2000 Elo).
 ***********************************************************************************************************************/
 
@@ -59,9 +60,9 @@ using ChessChallenge.API;
 // - Eval Function:
 // -- Piece Square Tables
 // -- King on (Semi) Open File Malus
-// -- Bishop Pair Bonus
+// -- Doubled Pawns Malus
 // -- All eval weights tuned specifically for Gᴀᴍʙᴏᴛ using Gedas' tuner (https://github.com/GediminasMasaitis/texel-tuner),
-//      tuned with datasets generated from self-play (of a prior version based on my public general tuned PSTs) and
+//      tuned with datasets generated from self play (of a prior version based on my public general tuned PSTs) and
 //      two publicly available datasets, lichess-big3-resolved and the zurichess quiet-labeled v7 dataset.
 
 public class MyBot : IChessBot
@@ -79,9 +80,7 @@ public class MyBot : IChessBot
     long allNodeCtr;
     long nonQuiescentNodeCtr;
     long betaCutoffCtr;
-    // node where remainingDepth is at least 2, so move ordering actually matters
-    // (it also matters for quiescent nodes but it's difficult to count non-leaf quiescent nodes and they don't use the TT, would skew results)
-    long parentOfInnerNodeCtr;
+    long parentOfInnerNodeCtr; // node where remainingDepth is at least 2, so move ordering matters more
     long parentOfInnerNodeBetaCutoffCtr;
     long pvsTryCtr;
     long pvsRetryCtr;
@@ -113,7 +112,7 @@ public class MyBot : IChessBot
     // challenge engines but performed only slightly better than PeSTO when substituting the joke king mg table.
     // So, these values are tuned under the assumption that the king mg table is modified.
 #if NO_JOKE
-    // The engine plays normally
+    // The engine plays normally (untuned PeSTO values); specially tuned values would probably have given >= 40 elo 
     private static decimal[] compresto = { 41259558725118300045770787m, 12148637347380221118036452643m, 17409920479543823259362417699m,
         17415950995801781949306850595m, 19582331915682275235129309987m, 27619270727875096341232753955m, 24204036247829851047561096995m,
         17716926000957032489238008611m, 19219649429467200750846752133m, 28239454489355429731532690857m, 27325506771411732918706423392m,
@@ -134,13 +133,10 @@ public class MyBot : IChessBot
 
 #else
 
-    // Modified king middle game table to make the king lead the army (as he should)
-
+    // Modified king middle game table to make the king lead his army (as he should)
     private static readonly byte [] weights = new[]
         // tuned values with additional score, Gᴀᴍʙᴏᴛ
-
 { 208063153150458622325293100m, 15682342277095336718331215916m, 17862073254533007938894580780m, 28993848255878051352383863852m, 25266692137604337784659873324m, 27430631391026990066160962348m, 26172111076271539771879985964m, 2682663467954403624427526444m, 26172176967737096112208692334m, 34270865850678084886824511630m, 37098534027005422770695479919m, 33410058887660581824132911522m, 38065636866709363910008874376m, 41426422051708640261174580371m, 41145918500806541029066570290m, 32696617406943010943609569808m, 30515871621706581698507796759m, 35798891418545368124946486831m, 41410725296276936301272013900m, 43581941734889116348673274963m, 44228660433808512153548805979m, 42649765607883535731683557227m, 42897547900264106899276737630m, 35172516818391737146598859311m, 27428293858110792459561755149m, 37672717475748669943891062567m, 42643858022592253047452960811m, 46690104665254284038682551598m, 46711803828559790887905954117m, 45446025309083856093597116987m, 42961668674194836996316034120m, 36128800718065307670610151467m, 23712032203204831173005824768m, 33650630551661478982315566624m, 41085538750994661787626009372m, 46063871480082052131389403697m, 46059026332213898642908085811m, 42640179464900655546098547240m, 38605932446840062652789718847m, 33638455847133473433555131418m, 21846636013514157421274677248m, 29271849175800440073925907996m, 36125249777110266856902518557m, 39828208453283882833982744602m, 40148564461283172764058089006m, 37672641769220111003978721570m, 31763322379079945569862315340m, 27724315178777278485335002408m, 15960347770659249787776022786m, 24627141640160101683000392736m, 28945438909283628048857977369m, 32670153803534771908499299599m, 33611864607805264413621640486m, 30483145438992624403376529723m, 24567805326371884075653355875m, 18635657795503422635219310633m, 6357816596486659951681209388m, 11307220660319016242922275628m, 17499371361932403565171125548m, 23675759742632019172112219948m, 15341396734006724797127803180m, 23078503145270531520487051564m, 14377844760509158994642944300m, 5388182382925415220359798828m, 5388182382925414868201832704m, 60331228170297136319483124743m }
-
         .SelectMany(decimal.GetBits).SelectMany(BitConverter.GetBytes).ToArray();
     
 #endif
@@ -192,15 +188,14 @@ public class MyBot : IChessBot
             beta += 20;
         }
         // Use bestRootMove even from aborted iterations, which works because the TT move at the root is always tried first.
-        // Unlike for the other nodes, the TT entry for the root can't ever be overwritten
+        // Unlike for the other nodes, the TT entry for the root can't ever be overwritten in an incomplete iteration.
 
 #if PRINT_DEBUG_INFO
         Console.WriteLine("All nodes: " + allNodeCtr + ", non quiescent: " + nonQuiescentNodeCtr + ", beta cutoff: " +
-                          betaCutoffCtr
-                          + ", percent cutting (higher is better): " + (1.0 * betaCutoffCtr / allNodeCtr).ToString("P1")
-                          + ", percent cutting for parents of inner nodes: " +
-                          (1.0 * parentOfInnerNodeBetaCutoffCtr / parentOfInnerNodeCtr).ToString("P1")
-                          + ", aspiration window retries: " + awRetryCtr);
+            betaCutoffCtr + ", percent cutting (higher is better): " + (1.0 * betaCutoffCtr / allNodeCtr).ToString("P1")
+            + ", percent cutting for parents of inner nodes: "
+            + (1.0 * parentOfInnerNodeBetaCutoffCtr / parentOfInnerNodeCtr).ToString("P1")
+            + ", aspiration window retries: " + awRetryCtr);
         Console.WriteLine("NPS: {0}k", (allNodeCtr / (double)timer.MillisecondsElapsedThisTurn).ToString("0.0"));
         Console.WriteLine("Time:{0} of {1} ms, remaining {2}", timer.MillisecondsElapsedThisTurn,
             timer.GameStartTimeMilliseconds, timer.MillisecondsRemaining);
@@ -218,6 +213,7 @@ public class MyBot : IChessBot
     {
         var (key, bestMove, _, _, _) = tt[board.ZobristKey & 0x7f_ffff];
         var move = bestMove;
+        // for nodes that failed low, no move is stored in the TT
         if (board.ZobristKey == key && board.GetLegalMoves().Contains(move) && remainingDepth > 0)
         {
             Console.Write(move + " ");
@@ -275,11 +271,6 @@ public class MyBot : IChessBot
                         // The + (<constant> << piece) part is just a trick to encode piece values in one byte
                         mg += weights[psqtIndex] + (34 << piece) + weights[piece + 1040];
                         eg += weights[psqtIndex + 6] + (55 << piece) + weights[piece + 1046];
-                        // if (piece == 2 && mask != 0) // Bishop pair bonus
-                        // {
-                        //     mg += 12;
-                        //     eg += 15;
-                        // }
                     }
 
                 // Penalize Kings on opponent's semi open files. Expressed as giving a penalty when that's not the case
@@ -287,8 +278,8 @@ public class MyBot : IChessBot
                 if (ToBoolean(0x0101_0101_0101_0101UL << board.GetKingSquare(!isWhite).File & pawns))
                     mg -= 40; // Avoid dangerous areas while still going forward with the king
                 // Flip the sign before adding the opponent's eval value and also add a doubled pawns penalty
-                mg = /*numDoubledPawns * 20*/ - mg;
-                eg = /*numDoubledPawns * 30*/ - eg;
+                mg = numDoubledPawns * 9 - mg;
+                eg = numDoubledPawns * 32 - eg;
             }
 
             int bestScore = -32_000,
@@ -297,8 +288,7 @@ public class MyBot : IChessBot
                 // The reason for this is probably that most of the time, original ab bounds weren't completely different from
                 // the current ab bounds, so inexact scores are still closer to the truth than the static eval on average
                 // (and using the static eval in non-quiet positions is a bad idea anyway), so this leads to better (nmp/rfp/fp) pruning
-                // TODO: Use qsearch result as standPat score if not in qsearch?
-                // if scores weren't stored as shorts in the TT, the / 24 would be unnecessary // TODO: Change TT size?
+                // If scores weren't stored as shorts in the TT, the / 24 would be unnecessary // TODO: Change TT size?
                 // 50 Move Rule Scaling didn't gain.
                 standPat = trustTTEntry ? ttScore : (mg * phase + eg * (24 - phase)) / 24, // Mate score when in check lost elo
                 moveIdx = 0,
@@ -329,8 +319,7 @@ public class MyBot : IChessBot
             ttFlag = 1;
             // Internal Iterative Reduction (IIR). Tests TT move instead of hash to reduce in previous fail low nodes.
             // It's especially important to reduce in pv nodes(!), and better to do this after(!) checking for TT cutoffs.
-            // TODO: Do after nmp?
-            if (remainingDepth > 3 /*TODO: Test with 4?*/ && bestMove == default) // TODO: also test for matching tt hash to only reduce fail low?
+            if (remainingDepth > 3 && bestMove == default)
                 --remainingDepth;
             
             if (allowPruning)
@@ -340,7 +329,7 @@ public class MyBot : IChessBot
                 if (!inQsearch && remainingDepth < 5 && standPat >= beta + 64 * remainingDepth)
                     return standPat;
 
-                // Null Move Pruning (NMP). TODO: Avoid zugzwang by testing phase? Probably not worth the tokens
+                // Null Move Pruning (NMP).
                 if (remainingDepth >= 4 && allowNmp && standPat >= beta)
                 {
                     board.ForceSkipTurn();
@@ -386,7 +375,7 @@ public class MyBot : IChessBot
                 // Futility Pruning (FP) and Late Move Pruning (LMP). Would probably benefit from more tuning
                 if (remainingDepth <= 5 && bestScore > -29_000 && allowPruning  // && !inQsearch doesn't gain
                     && (uninterestingMove && standPat + 300 + 64 * remainingDepth < alpha
-                        || moveIdx > 7 + remainingDepth * remainingDepth)) // TODO: Try adding && !inQsearch to LMP only?
+                        || moveIdx > 7 + remainingDepth * remainingDepth))
                     break;
                 // Passed pawn extensions are only worth ~10 elo for 26 tokens, but seem to be rather uncommon,
                 // which makes King Gᴀᴍʙᴏᴛ be NoT lIkE tHe OtHeR eNgInEs
