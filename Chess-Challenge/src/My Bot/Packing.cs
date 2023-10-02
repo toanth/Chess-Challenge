@@ -9,7 +9,7 @@ using ChessChallenge.API;
 // that results in a lossless(*) compression using relatively few tokens
 // (*) The compression is lossless except for the square a8 in the middle game knight table, which is too
 // large by 41 (but still rated very negatively). This shouldn't make a big difference in practice, though.
-public class Pesto
+public class Packing
 {
     // Apparently, there's no way to make arrays immutable in C#, so these are functions that return temporaries.
     public static int[] piecePhase => new int[]{ 0, 1, 1, 2, 4, 0 };
@@ -210,8 +210,8 @@ public class Pesto
         // A decimal can store 12 easily accessible bytes, so the 12 * 64 + 6 + 2 * 6 bytes can be stored in 66 decimals
         Decimal[] compresto = new Decimal[66];
         // create a local copy that can be modified and prevents inadvertently trying to modify the global array
-        int[][] tunedPsqts = Pesto.tunedPsqts;
-        int[] tunedPieceValues = Pesto.tunedPieceValues;
+        int[][] tunedPsqts = Packing.tunedPsqts;
+        int[] tunedPieceValues = Packing.tunedPieceValues;
         
         // first, compress the piece square tables
         List<Overflow> overflows = new();
@@ -319,7 +319,7 @@ public class Pesto
     // public static decimal[] compresto = createCompressedEval();
     
     // uncompress it like this, but replace the `compresto` variable with the hard-coded values
-    // (which you can get using the printCompressedPesto() function):
+    // (which you can get using the printCompressedPsqt() function):
     // public static byte[] evalData = compresto.SelectMany(BitConverter.GetBytes).ToArray();
     
     public static void printCompressedPsqt()
@@ -346,7 +346,7 @@ public class Pesto
         {
             uncompressedPieceValues[i] = uncompressedPsqts[65 * 16 + i] + ((i < 6 ? mgScaling : egScaling) << (i % 6));
             // Console.WriteLine("piece {0}, value {1}", i, uncompressedPieceValues[i]);
-            // pesto piece values are changed by subtracting a table-specific offset, so only use >= for comparison
+            // piece values are changed by subtracting a table-specific offset, so only use >= for comparison
             Debug.Assert(i % 6 == 5 || // the king's piece value doesn't matter
                          tunedPieceValues[i] + 50 >= uncompressedPieceValues[i]);
         }
@@ -372,8 +372,9 @@ public class Pesto
         }
     }
 
-    // This function is useful for testing that the pesto compression worked. Not meant to be called in the actual bot.
-    // The code is adapted from cpw (https://www.chessprogramming.org/PeSTO%27s_Evaluation_Function)
+    // This function is useful for testing that the "compression" worked. Not meant to be called in the actual bot.
+    // The code is adapted from cpw (https://www.chessprogramming.org/PeSTO%27s_Evaluation_Function).
+    // Only works for psqt-only eval functions without overflows (uncomment code to make it work for compressed PeSTO)
     public static int uncompressedEval(Board board)
     {            
         int[] mg = new int[2];
@@ -403,18 +404,18 @@ public class Pesto
             // Console.Write("(" + (pc >= 0 ? pestoPsqts[pc][square] : -1) + ") " + pc + ";  ");
             // if (sq % 8 == 7) Console.WriteLine();
         }
-
-        var onA8 = board.GetPiece(new Square("a8"));
-        if (onA8.PieceType == PieceType.Knight && onA8.IsWhite)
-        {
-            mg[WHITE] += 41;
-        }
-
-        var onA1 = board.GetPiece(new Square("a1"));
-        if (onA1.PieceType == PieceType.Knight && !onA1.IsWhite)
-        {
-            mg[BLACK] += 41;
-        }
+        
+        // var onA8 = board.GetPiece(new Square("a8"));
+        // if (onA8.PieceType == PieceType.Knight && onA8.IsWhite)
+        // {
+        //     mg[WHITE] += 41;
+        // }
+        //
+        // var onA1 = board.GetPiece(new Square("a1"));
+        // if (onA1.PieceType == PieceType.Knight && !onA1.IsWhite)
+        // {
+        //     mg[BLACK] += 41;
+        // }
         
         /* tapered eval */
         int mgScore = mg[WHITE] - mg[BLACK];
